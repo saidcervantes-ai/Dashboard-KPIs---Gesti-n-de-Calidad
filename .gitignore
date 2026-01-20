@@ -1,0 +1,13 @@
+# Archivos del proyecto Dashboard KPIs
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# Archivos de respaldo
+*~
+*.bak
+*.swp
+
+# Si quieres proteger los datos reales, descomenta la siguiente línea:
+# dashboard_data.js
