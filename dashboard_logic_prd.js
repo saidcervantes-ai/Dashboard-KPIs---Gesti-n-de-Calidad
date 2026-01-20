@@ -156,6 +156,34 @@ function renderDashboardKPIsPRD(kpis, bugs) {
     `;
     
     html += '</div>';
+    
+    // Agregar tabla de distribución por prioridad
+    html += '<h3>Distribución por Prioridad</h3>';
+    html += '<table><thead><tr>';
+    html += '<th>Prioridad</th><th>Total</th><th>Finalizados</th><th>En Curso</th><th>Pendientes</th><th>% Completado</th>';
+    html += '</tr></thead><tbody>';
+    
+    ['Highest', 'High', 'Medium', 'Low'].forEach(p => {
+        const bugsPrio = bugs.filter(b => b.prioridad === p);
+        const total = bugsPrio.length;
+        const fin = bugsPrio.filter(b => b.estado === 'Finalizada').length;
+        const curso = bugsPrio.filter(b => b.estado === 'En curso').length;
+        const pend = bugsPrio.filter(b => b.estado === 'Tareas por hacer').length;
+        const pct = total > 0 ? ((fin / total) * 100).toFixed(1) : 0;
+        const mesActual = document.getElementById('month-selector-dashboard-prd').value;
+        
+        html += '<tr>';
+        html += `<td><strong>${p}</strong></td>`;
+        html += `<td><a href="#" class="clickable-number" onclick="showBugDetailsByPriorityPRD('${p}', 'all', '${mesActual}'); return false;">${total}</a></td>`;
+        html += `<td><a href="#" class="clickable-number" onclick="showBugDetailsByPriorityPRD('${p}', 'Finalizada', '${mesActual}'); return false;">${fin}</a></td>`;
+        html += `<td><a href="#" class="clickable-number" onclick="showBugDetailsByPriorityPRD('${p}', 'En curso', '${mesActual}'); return false;">${curso}</a></td>`;
+        html += `<td><a href="#" class="clickable-number" onclick="showBugDetailsByPriorityPRD('${p}', 'Tareas por hacer', '${mesActual}'); return false;">${pend}</a></td>`;
+        html += `<td>${pct}%</td>`;
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table>';
+    
     container.innerHTML = html;
 }
 
@@ -259,9 +287,9 @@ function renderEvolucionPRD() {
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td><strong>${mes}</strong></td>
-                <td style="color: #dc3545;">${datos.nuevos}</td>
-                <td style="color: #28a745;">${datos.resueltos}</td>
-                <td style="color: #667eea;">${datos.nuevos - datos.resueltos}</td>
+                <td><a href="#" class="clickable-number" onclick="showBugDetailsPRD('${mes}', 'nuevos'); return false;" style="color: #dc3545;">${datos.nuevos}</a></td>
+                <td><a href="#" class="clickable-number" onclick="showBugDetailsPRD('${mes}', 'resueltos'); return false;" style="color: #28a745;">${datos.resueltos}</a></td>
+                <td><a href="#" class="clickable-number" onclick="showBugDetailsPRD('${mes}', 'abiertos'); return false;" style="color: #667eea;">${datos.nuevos - datos.resueltos}</a></td>
                 <td><strong>${datos.total}</strong></td>
                 <td>${porcentajeResolucion}%</td>
             `;
@@ -783,4 +811,151 @@ function exportarTablaExcelPRD() {
     link.href = URL.createObjectURL(blob);
     link.download = 'bugs_produccion_' + new Date().toISOString().split('T')[0] + '.csv';
     link.click();
+}
+
+// ==================== MODAL DE DETALLES DE BUGS PRD ====================
+
+function showBugDetailsPRD(mes, tipo) {
+    // Filtrar bugs del mes
+    const bugsMes = allBugsPRD.filter(b => b.mes === mes);
+    
+    let bugsFiltrados = [];
+    let titulo = '';
+    
+    switch(tipo) {
+        case 'nuevos':
+            bugsFiltrados = bugsMes;
+            titulo = `Incidentes Nuevos - ${mes}`;
+            break;
+        case 'resueltos':
+            bugsFiltrados = bugsMes.filter(b => b.estado === 'Finalizada');
+            titulo = `Incidentes Resueltos - ${mes}`;
+            break;
+        case 'abiertos':
+            bugsFiltrados = bugsMes.filter(b => b.estado !== 'Finalizada');
+            titulo = `Incidentes Abiertos - ${mes}`;
+            break;
+    }
+    
+    // Crear modal si no existe
+    let modal = document.getElementById('ticket-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'ticket-modal';
+        modal.className = 'modal-overlay';
+        document.body.appendChild(modal);
+    }
+    
+    // Contenido del modal
+    const tablaHTML = bugsFiltrados.length > 0 ? `
+        <table class="modal-table">
+            <thead>
+                <tr>
+                    <th>Clave</th>
+                    <th>Resumen</th>
+                    <th>Asignado</th>
+                    <th>Prioridad</th>
+                    <th>Estado</th>
+                    <th>Creada</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${bugsFiltrados.map(b => `
+                    <tr>
+                        <td><strong>${b.clave}</strong></td>
+                        <td>${b.resumen}</td>
+                        <td>${b.asignado}</td>
+                        <td><span class="priority-badge priority-${b.prioridad.toLowerCase()}">${b.prioridad}</span></td>
+                        <td><span class="status-badge status-${b.estado.toLowerCase().replace(' ', '-')}">${b.estado}</span></td>
+                        <td>${b.creada}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    ` : '<p class="no-data">No hay incidentes en esta categoría</p>';
+    
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>${titulo}</h2>
+                <button class="modal-close" onclick="closeTicketModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-summary">
+                    <span class="summary-label">Total de incidentes:</span>
+                    <span class="summary-value">${bugsFiltrados.length}</span>
+                </div>
+                ${tablaHTML}
+            </div>
+        </div>
+    `;
+    
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+// Mostrar detalles de bugs por prioridad
+function showBugDetailsByPriorityPRD(prioridad, estado, mes) {
+    let bugs = [...bugsPRD];
+    
+    // Filtrar por mes si no es 'all'
+    if (mes !== 'all') {
+        const [mesNombre, year] = mes.split(' ');
+        bugs = bugs.filter(b => {
+            const fechaCreada = new Date(b.creada.split('/').reverse().join('-'));
+            const mesCreada = fechaCreada.toLocaleString('es-ES', {month: 'long'});
+            const añoCreada = fechaCreada.getFullYear();
+            return mesCreada.toLowerCase() === mesNombre.toLowerCase() && añoCreada === parseInt(year);
+        });
+    }
+    
+    // Filtrar por prioridad
+    bugs = bugs.filter(b => b.prioridad === prioridad);
+    
+    // Filtrar por estado
+    if (estado !== 'all') {
+        bugs = bugs.filter(b => b.estado === estado);
+    }
+    
+    // Mostrar modal
+    const modal = document.getElementById('ticket-modal');
+    const modalBody = document.querySelector('.modal-body');
+    const modalTitle = document.getElementById('modal-title');
+    
+    // Título del modal
+    let titulo = `Bugs - ${prioridad}`;
+    if (estado !== 'all') {
+        titulo += ` - ${estado}`;
+    }
+    if (mes !== 'all') {
+        titulo += ` (${mes})`;
+    }
+    modalTitle.textContent = titulo;
+    
+    // Crear tabla
+    let html = '<table class="modal-table"><thead><tr>';
+    html += '<th>Clave</th><th>Resumen</th><th>Asignado</th><th>Prioridad</th><th>Estado</th><th>Creada</th>';
+    html += '</tr></thead><tbody>';
+    
+    bugs.forEach(bug => {
+        const prioClass = `priority-${bug.prioridad.toLowerCase()}`;
+        const statusClass = bug.estado === 'Finalizada' ? 'status-finalizados' : 
+                           bug.estado === 'En curso' ? 'status-en-curso' : 'status-pendientes';
+        
+        html += '<tr>';
+        html += `<td>${bug.clave}</td>`;
+        html += `<td>${bug.resumen}</td>`;
+        html += `<td>${bug.asignado}</td>`;
+        html += `<td><span class="priority-badge ${prioClass}">${bug.prioridad}</span></td>`;
+        html += `<td><span class="status-badge ${statusClass}">${bug.estado}</span></td>`;
+        html += `<td>${bug.creada}</td>`;
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table>';
+    html += `<p style="margin-top: 20px; font-weight: 600;">Total: ${bugs.length} bugs</p>`;
+    
+    modalBody.innerHTML = html;
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
 }

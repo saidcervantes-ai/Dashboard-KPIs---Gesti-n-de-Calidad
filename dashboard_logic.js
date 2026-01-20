@@ -178,12 +178,13 @@ function renderDashboardKPIs(kpis, tickets) {
                     const curso = ticketsPrio.filter(t => t.estadoNormalizado === 'En curso').length;
                     const pend = ticketsPrio.filter(t => t.estadoNormalizado === 'Tareas por hacer').length;
                     const pct = total > 0 ? ((fin / total) * 100).toFixed(1) : 0;
+                    const sprintActual = document.getElementById('sprint-selector-dashboard').value;
                     return `<tr>
                         <td><strong>${p}</strong></td>
-                        <td>${total}</td>
-                        <td>${fin}</td>
-                        <td>${curso}</td>
-                        <td>${pend}</td>
+                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'all', '${sprintActual}'); return false;">${total}</a></td>
+                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'Finalizados', '${sprintActual}'); return false;">${fin}</a></td>
+                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'En curso', '${sprintActual}'); return false;">${curso}</a></td>
+                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'Tareas por hacer', '${sprintActual}'); return false;">${pend}</a></td>
                         <td>${pct}%</td>
                     </tr>`;
                 }).join('')}
@@ -270,9 +271,9 @@ function renderEvolucion() {
     tbody.innerHTML = rows.map(r => `
         <tr ${r.sprint == 32 ? 'style="background-color: #e3f2fd; font-weight: 600;"' : ''}>
             <td><strong>Sprint ${r.sprint}${r.sprint == 32 ? ' (Actual)' : ''}</strong></td>
-            <td>${r.nuevos}</td>
-            <td>${r.resueltos}</td>
-            <td>${r.pendientes}</td>
+            <td><a href="#" class="clickable-number" onclick="showTicketDetails(${r.sprint}, 'nuevos'); return false;">${r.nuevos}</a></td>
+            <td><a href="#" class="clickable-number" onclick="showTicketDetails(${r.sprint}, 'resueltos'); return false;">${r.resueltos}</a></td>
+            <td><a href="#" class="clickable-number" onclick="showTicketDetails(${r.sprint}, 'pendientes'); return false;">${r.pendientes}</a></td>
             <td>${r.totalAcumulado}</td>
             <td>${r.pctResolucion}%</td>
         </tr>
@@ -1155,4 +1156,178 @@ function updateFooterStats() {
     if (footerBugsResolved) footerBugsResolved.textContent = resueltosBugs;
     if (headerTotal) headerTotal.textContent = total;
     if (headerBugsTotal) headerBugsTotal.textContent = totalBugs;
+}
+
+// ==================== MODAL DE DETALLES DE TICKETS ====================
+
+function showTicketDetails(sprint, tipo) {
+    // Filtrar tickets del sprint
+    const ticketsSprint = allTickets.filter(t => t.sprint == sprint);
+    
+    let ticketsFiltrados = [];
+    let titulo = '';
+    
+    switch(tipo) {
+        case 'nuevos':
+            ticketsFiltrados = ticketsSprint;
+            titulo = `Incidentes Nuevos - Sprint ${sprint}`;
+            break;
+        case 'resueltos':
+            ticketsFiltrados = ticketsSprint.filter(t => t.estadoNormalizado === 'Finalizados');
+            titulo = `Incidentes Resueltos - Sprint ${sprint}`;
+            break;
+        case 'pendientes':
+            ticketsFiltrados = ticketsSprint.filter(t => t.estadoNormalizado !== 'Finalizados');
+            titulo = `Incidentes Pendientes - Sprint ${sprint}`;
+            break;
+    }
+    
+    // Crear modal si no existe
+    let modal = document.getElementById('ticket-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'ticket-modal';
+        modal.className = 'modal-overlay';
+        document.body.appendChild(modal);
+    }
+    
+    // Contenido del modal
+    const tablaHTML = ticketsFiltrados.length > 0 ? `
+        <table class="modal-table">
+            <thead>
+                <tr>
+                    <th>Clave</th>
+                    <th>Resumen</th>
+                    <th>Asignado</th>
+                    <th>Prioridad</th>
+                    <th>Estado</th>
+                    <th>Creada</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${ticketsFiltrados.map(t => `
+                    <tr>
+                        <td><strong>${t.clave}</strong></td>
+                        <td>${t.resumen}</td>
+                        <td>${t.asignado}</td>
+                        <td><span class="priority-badge priority-${t.prioridad.toLowerCase()}">${t.prioridad}</span></td>
+                        <td><span class="status-badge status-${t.estadoNormalizado.toLowerCase().replace(' ', '-')}">${t.estado}</span></td>
+                        <td>${t.creada}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    ` : '<p class="no-data">No hay incidentes en esta categoría</p>';
+    
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>${titulo}</h2>
+                <button class="modal-close" onclick="closeTicketModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-summary">
+                    <span class="summary-label">Total de incidentes:</span>
+                    <span class="summary-value">${ticketsFiltrados.length}</span>
+                </div>
+                ${tablaHTML}
+            </div>
+        </div>
+    `;
+    
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeTicketModal() {
+    const modal = document.getElementById('ticket-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+}
+
+// Cerrar modal al hacer clic fuera
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('ticket-modal');
+    if (modal && e.target === modal) {
+        closeTicketModal();
+    }
+});
+
+// ==================== MODAL POR PRIORIDAD Y ESTADO ====================
+
+function showTicketDetailsByPriority(prioridad, estado, sprint) {
+    // Filtrar tickets
+    let ticketsFiltrados = allTickets.filter(t => t.prioridad === prioridad);
+    
+    // Filtrar por sprint si no es "all"
+    if (sprint !== 'all') {
+        ticketsFiltrados = ticketsFiltrados.filter(t => t.sprint == sprint);
+    }
+    
+    // Filtrar por estado si no es "all"
+    let titulo = '';
+    if (estado === 'all') {
+        titulo = `Incidentes ${prioridad}${sprint !== 'all' ? ' - Sprint ' + sprint : ' - Todos los Sprints'}`;
+    } else {
+        ticketsFiltrados = ticketsFiltrados.filter(t => t.estadoNormalizado === estado);
+        titulo = `Incidentes ${prioridad} - ${estado}${sprint !== 'all' ? ' - Sprint ' + sprint : ' - Todos los Sprints'}`;
+    }
+    
+    // Crear modal si no existe
+    let modal = document.getElementById('ticket-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'ticket-modal';
+        modal.className = 'modal-overlay';
+        document.body.appendChild(modal);
+    }
+    
+    // Contenido del modal
+    const tablaHTML = ticketsFiltrados.length > 0 ? `
+        <table class="modal-table">
+            <thead>
+                <tr>
+                    <th>Clave</th>
+                    <th>Resumen</th>
+                    <th>Asignado</th>
+                    <th>Sprint</th>
+                    <th>Estado</th>
+                    <th>Creada</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${ticketsFiltrados.map(t => `
+                    <tr>
+                        <td><strong>${t.clave}</strong></td>
+                        <td>${t.resumen}</td>
+                        <td>${t.asignado}</td>
+                        <td>Sprint ${t.sprint}</td>
+                        <td><span class="status-badge status-${t.estadoNormalizado.toLowerCase().replace(' ', '-')}">${t.estado}</span></td>
+                        <td>${t.creada}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    ` : '<p class="no-data">No hay incidentes en esta categoría</p>';
+    
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>${titulo}</h2>
+                <button class="modal-close" onclick="closeTicketModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-summary">
+                    <span class="summary-label">Total de incidentes:</span>
+                    <span class="summary-value">${ticketsFiltrados.length}</span>
+                </div>
+                ${tablaHTML}
+            </div>
+        </div>
+    `;
+    
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
 }
