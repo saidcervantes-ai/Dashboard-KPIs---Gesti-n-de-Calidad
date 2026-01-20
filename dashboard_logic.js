@@ -1112,20 +1112,23 @@ function exportarCSV() {
 
 // ==================== FUNCIONES DE NAVEGACIÓN ====================
 
-function showTab(tabName) {
+// Nueva función para manejar la navegación con selectores
+function showView(section, viewName) {
     // Ocultar todos los contenidos
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
     });
     
-    // Desactivar todas las pestañas
-    document.querySelectorAll('.tabs li').forEach(tab => {
-        tab.classList.remove('active');
-    });
-    
-    // Activar la pestaña seleccionada
-    document.getElementById(tabName).classList.add('active');
-    event.target.classList.add('active');
+    // Activar el contenido seleccionado
+    const targetView = document.getElementById(viewName);
+    if (targetView) {
+        targetView.classList.add('active');
+    }
+}
+
+// Función legacy para compatibilidad (por si se necesita)
+function showTab(tabName) {
+    showView('legacy', tabName);
 }
 
 // ==================== ACTUALIZAR FOOTER ====================
@@ -1133,29 +1136,23 @@ function showTab(tabName) {
 function updateFooterStats() {
     const total = allTickets.length;
     const resueltos = allTickets.filter(t => t.estadoNormalizado === 'Finalizados').length;
-    const pendientes = total - resueltos;
     
-    // Calcular promedio de días de resolución
-    const ticketsResueltos = allTickets.filter(t => t.estadoNormalizado === 'Finalizados');
-    let avgDays = 0;
-    if (ticketsResueltos.length > 0) {
-        const totalDays = ticketsResueltos.reduce((sum, ticket) => {
-            const dias = calcularDiasResolucion(ticket.creada, ticket.resuelta);
-            return sum + (dias || 0);
-        }, 0);
-        avgDays = (totalDays / ticketsResueltos.length).toFixed(1);
-    }
+    // Stats de bugs PRD (usar bugsPRD que es el nombre correcto del array)
+    const totalBugs = typeof bugsPRD !== 'undefined' ? bugsPRD.length : 0;
+    const resueltosBugs = typeof bugsPRD !== 'undefined' ? bugsPRD.filter(b => b.estado === 'Finalizada').length : 0;
     
     // Actualizar elementos del footer
     const footerTotal = document.getElementById('footer-total');
     const footerResolved = document.getElementById('footer-resolved');
-    const footerPending = document.getElementById('footer-pending');
-    const footerAvgDays = document.getElementById('footer-avg-days');
+    const footerBugsTotal = document.getElementById('footer-bugs-total');
+    const footerBugsResolved = document.getElementById('footer-bugs-resolved');
     const headerTotal = document.getElementById('header-total-tickets');
+    const headerBugsTotal = document.getElementById('header-total-bugs-prd');
     
     if (footerTotal) footerTotal.textContent = total;
     if (footerResolved) footerResolved.textContent = resueltos;
-    if (footerPending) footerPending.textContent = pendientes;
-    if (footerAvgDays) footerAvgDays.textContent = avgDays;
+    if (footerBugsTotal) footerBugsTotal.textContent = totalBugs;
+    if (footerBugsResolved) footerBugsResolved.textContent = resueltosBugs;
     if (headerTotal) headerTotal.textContent = total;
+    if (headerBugsTotal) headerBugsTotal.textContent = totalBugs;
 }
