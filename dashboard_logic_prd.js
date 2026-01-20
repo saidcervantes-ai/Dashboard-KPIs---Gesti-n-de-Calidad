@@ -714,6 +714,12 @@ function renderBugsPRD() {
         
         tbody.appendChild(tr);
     });
+    
+    // Actualizar contador
+    const countElement = document.getElementById('count-bugs-prd');
+    if (countElement) {
+        countElement.textContent = allBugsPRD.length;
+    }
 }
 
 function filterBugsPRD() {
@@ -789,6 +795,51 @@ function cambiarEstadoPRD(index, nuevoEstado) {
     updateResumenPRD();
 }
 
+function agregarBugPRD() {
+    // Obtener fecha actual
+    const fechaActual = new Date();
+    const fechaFormateada = fechaActual.toLocaleDateString('es-ES');
+    
+    // Calcular el mes en formato "Mes Año" (ej: "Enero 2026")
+    const mesNombre = fechaActual.toLocaleString('es-ES', { month: 'long' });
+    const anio = fechaActual.getFullYear();
+    const mesFormateado = mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1) + ' ' + anio;
+    
+    // Crear nuevo bug
+    const nuevoBug = {
+        clave: document.getElementById('new-clave-prd').value,
+        resumen: document.getElementById('new-resumen-prd').value,
+        asignado: document.getElementById('new-asignado-prd').value || 'Sin asignar',
+        informador: document.getElementById('new-informador-prd').value || 'Sin informador',
+        prioridad: document.getElementById('new-prioridad-prd').value,
+        estado: document.getElementById('new-estado-prd').value,
+        resolucion: document.getElementById('new-resolucion-prd').value || '',
+        creada: fechaFormateada,
+        actualizada: fechaFormateada,
+        mes: mesFormateado
+    };
+    
+    // Agregar al array
+    allBugsPRD.push(nuevoBug);
+    
+    // Limpiar formulario
+    document.getElementById('new-clave-prd').value = '';
+    document.getElementById('new-resumen-prd').value = '';
+    document.getElementById('new-asignado-prd').value = '';
+    document.getElementById('new-informador-prd').value = '';
+    document.getElementById('new-resolucion-prd').value = '';
+    document.getElementById('add-row-form-prd').style.display = 'none';
+    
+    // Actualizar todas las vistas
+    renderBugsPRD();
+    updateDashboardPRD();
+    updateResumenPRD();
+    renderEvolucionPRD();
+    populateFiltersPRD();
+    
+    alert('✅ Incidente agregado correctamente');
+}
+
 function eliminarBugPRD(index) {
     if (confirm('¿Estás seguro de eliminar este bug?')) {
         allBugsPRD.splice(index, 1);
@@ -797,6 +848,113 @@ function eliminarBugPRD(index) {
         updateResumenPRD();
         renderEvolucionPRD();
     }
+}
+
+function importarCSVPRD(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const text = e.target.result;
+            const lines = text.split('\n').filter(line => line.trim());
+            
+            if (lines.length < 2) {
+                alert('❌ El archivo CSV está vacío o no tiene datos');
+                return;
+            }
+            
+            // Saltar la primera línea (encabezados)
+            const dataLines = lines.slice(1);
+            let importados = 0;
+            let errores = 0;
+            
+            dataLines.forEach((line, index) => {
+                try {
+                    // Parsear CSV considerando campos entre comillas
+                    const campos = [];
+                    let campo = '';
+                    let dentroComillas = false;
+                    
+                    for (let i = 0; i < line.length; i++) {
+                        const char = line[i];
+                        
+                        if (char === '"') {
+                            dentroComillas = !dentroComillas;
+                        } else if (char === ',' && !dentroComillas) {
+                            campos.push(campo.trim());
+                            campo = '';
+                        } else {
+                            campo += char;
+                        }
+                    }
+                    campos.push(campo.trim()); // Último campo
+                    
+                    // Validar que tenga al menos los campos esenciales
+                    if (campos.length < 3) {
+                        console.warn(`Línea ${index + 2} omitida: datos incompletos`);
+                        errores++;
+                        return;
+                    }
+                    
+                    // Calcular mes si no está presente
+                    let mesFormateado = campos[9];
+                    if (!mesFormateado || mesFormateado === '') {
+                        const fechaActual = new Date();
+                        const mesNombre = fechaActual.toLocaleString('es-ES', { month: 'long' });
+                        const anio = fechaActual.getFullYear();
+                        mesFormateado = mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1) + ' ' + anio;
+                    }
+                    
+                    const nuevoBug = {
+                        clave: campos[0] || `BUG-${Date.now()}-${index}`,
+                        resumen: campos[1] || 'Sin resumen',
+                        asignado: campos[2] || 'Sin asignar',
+                        informador: campos[3] || 'Sin informador',
+                        prioridad: campos[4] || 'Medium',
+                        estado: campos[5] || 'Tareas por hacer',
+                        resolucion: campos[6] || '',
+                        creada: campos[7] || new Date().toLocaleDateString('es-ES'),
+                        actualizada: campos[8] || new Date().toLocaleDateString('es-ES'),
+                        mes: mesFormateado
+                    };
+                    
+                    allBugsPRD.push(nuevoBug);
+                    importados++;
+                } catch (err) {
+                    console.error(`Error en línea ${index + 2}:`, err);
+                    errores++;
+                }
+            });
+            
+            // Actualizar vistas
+            renderBugsPRD();
+            updateDashboardPRD();
+            updateResumenPRD();
+            renderEvolucionPRD();
+            populateFiltersPRD();
+            
+            // Limpiar el input
+            event.target.value = '';
+            
+            // Mostrar resultado
+            if (errores > 0) {
+                alert(`✅ Importación completada:\n${importados} incidentes importados\n${errores} líneas con errores (ver consola)`);
+            } else {
+                alert(`✅ ${importados} incidentes importados correctamente`);
+            }
+        } catch (error) {
+            console.error('Error al procesar CSV:', error);
+            alert('❌ Error al procesar el archivo CSV: ' + error.message);
+        }
+    };
+    
+    reader.onerror = function() {
+        alert('❌ Error al leer el archivo');
+    };
+    
+    reader.readAsText(file);
 }
 
 function exportarTablaExcelPRD() {
@@ -893,7 +1051,6 @@ function showBugDetailsPRD(mes, tipo) {
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 }
-
 // Mostrar detalles de bugs por prioridad
 function showBugDetailsByPriorityPRD(prioridad, estado, mes) {
     let bugs = [...bugsPRD];
@@ -917,11 +1074,6 @@ function showBugDetailsByPriorityPRD(prioridad, estado, mes) {
         bugs = bugs.filter(b => b.estado === estado);
     }
     
-    // Mostrar modal
-    const modal = document.getElementById('ticket-modal');
-    const modalBody = document.querySelector('.modal-body');
-    const modalTitle = document.getElementById('modal-title');
-    
     // Título del modal
     let titulo = `Bugs - ${prioridad}`;
     if (estado !== 'all') {
@@ -930,32 +1082,73 @@ function showBugDetailsByPriorityPRD(prioridad, estado, mes) {
     if (mes !== 'all') {
         titulo += ` (${mes})`;
     }
-    modalTitle.textContent = titulo;
     
-    // Crear tabla
-    let html = '<table class="modal-table"><thead><tr>';
-    html += '<th>Clave</th><th>Resumen</th><th>Asignado</th><th>Prioridad</th><th>Estado</th><th>Creada</th>';
-    html += '</tr></thead><tbody>';
+    // Crear modal si no existe
+    let modal = document.getElementById('ticket-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'ticket-modal';
+        modal.className = 'modal-overlay';
+        document.body.appendChild(modal);
+    }
     
-    bugs.forEach(bug => {
-        const prioClass = `priority-${bug.prioridad.toLowerCase()}`;
-        const statusClass = bug.estado === 'Finalizada' ? 'status-finalizados' : 
-                           bug.estado === 'En curso' ? 'status-en-curso' : 'status-pendientes';
-        
-        html += '<tr>';
-        html += `<td>${bug.clave}</td>`;
-        html += `<td>${bug.resumen}</td>`;
-        html += `<td>${bug.asignado}</td>`;
-        html += `<td><span class="priority-badge ${prioClass}">${bug.prioridad}</span></td>`;
-        html += `<td><span class="status-badge ${statusClass}">${bug.estado}</span></td>`;
-        html += `<td>${bug.creada}</td>`;
-        html += '</tr>';
-    });
+    // Contenido del modal
+    const tablaHTML = bugs.length > 0 ? `
+        <table class="modal-table">
+            <thead>
+                <tr>
+                    <th>Clave</th>
+                    <th>Resumen</th>
+                    <th>Asignado</th>
+                    <th>Prioridad</th>
+                    <th>Estado</th>
+                    <th>Creada</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${bugs.map(b => `
+                    <tr>
+                        <td><strong>${b.clave}</strong></td>
+                        <td>${b.resumen}</td>
+                        <td>${b.asignado}</td>
+                        <td><span class="priority-badge priority-${b.prioridad.toLowerCase()}">${b.prioridad}</span></td>
+                        <td><span class="status-badge status-${b.estado.toLowerCase().replace(' ', '-')}">${b.estado}</span></td>
+                        <td>${b.creada}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    ` : '<p class="no-data">No hay incidentes en esta categoría</p>';
     
-    html += '</tbody></table>';
-    html += `<p style="margin-top: 20px; font-weight: 600;">Total: ${bugs.length} bugs</p>`;
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>${titulo}</h2>
+                <button class="modal-close" onclick="closeTicketModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-summary">
+                    <span class="summary-label">Total de incidentes:</span>
+                    <span class="summary-value">${bugs.length}</span>
+                </div>
+                ${tablaHTML}
+            </div>
+        </div>
+    `;
     
-    modalBody.innerHTML = html;
-    modal.style.display = 'block';
+    modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+}
+
+// Helper function para ajustar brillo de colores
+function adjustColorBrightness(color, percent) {
+    const num = parseInt(color.replace('#', ''), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) + amt;
+    const G = (num >> 8 & 0x00FF) + amt;
+    const B = (num & 0x0000FF) + amt;
+    return '#' + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+        (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+        (B < 255 ? B < 1 ? 0 : B : 255))
+        .toString(16).slice(1);
 }

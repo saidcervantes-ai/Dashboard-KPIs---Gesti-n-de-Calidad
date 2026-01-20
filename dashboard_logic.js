@@ -17,6 +17,18 @@ function initializeDashboard() {
     document.getElementById('last-update').textContent = new Date().toLocaleString('es-ES');
     document.getElementById('total-tickets').textContent = allTickets.length;
     
+    // Poblar selector de meses
+    populateMonthSelector();
+    
+    // Configurar filtros por defecto: Sprint 32 (Actual)
+    const filterType = document.getElementById('filter-type-selector');
+    const filterValue = document.getElementById('filter-value-selector');
+    
+    if (filterType && filterValue) {
+        filterType.value = 'sprint';
+        filterValue.value = '32';
+    }
+    
     // Actualizar footer
     updateFooterStats();
     
@@ -27,11 +39,138 @@ function initializeDashboard() {
     renderIncidentes();
 }
 
+// Cambiar tipo de filtro (Sprint o Mes)
+function cambiarTipoFiltro() {
+    const tipoFiltro = document.getElementById('filter-type-selector').value;
+    const label = document.getElementById('filter-value-label');
+    const selector = document.getElementById('filter-value-selector');
+    
+    selector.innerHTML = '';
+    
+    if (tipoFiltro === 'sprint') {
+        label.textContent = 'Seleccionar Sprint:';
+        selector.innerHTML = `
+            <option value="all">Todos los Sprints</option>
+            <option value="30">Sprint 30</option>
+            <option value="31">Sprint 31</option>
+            <option value="32" selected>Sprint 32 (Actual)</option>
+            <option value="33">Sprint 33</option>
+        `;
+    } else if (tipoFiltro === 'mes') {
+        label.textContent = 'Seleccionar Mes:';
+        const option = document.createElement('option');
+        option.value = 'all';
+        option.textContent = 'Todos los Meses';
+        selector.appendChild(option);
+        
+        // Poblar meses
+        const meses = new Set();
+        allTickets.forEach(ticket => {
+            const fecha = parsearFecha(ticket.creada);
+            if (fecha) {
+                const mesCreada = fecha.toLocaleString('es-ES', {month: 'long', year: 'numeric'});
+                meses.add(mesCreada);
+            }
+        });
+        
+        const mesesOrdenados = Array.from(meses).sort((a, b) => {
+            const [mesA, añoA] = a.split(' de ');
+            const [mesB, añoB] = b.split(' de ');
+            const dateA = new Date(añoA + '-' + obtenerNumeroMes(mesA) + '-01');
+            const dateB = new Date(añoB + '-' + obtenerNumeroMes(mesB) + '-01');
+            return dateB - dateA;
+        });
+        
+        mesesOrdenados.forEach(mes => {
+            const opt = document.createElement('option');
+            opt.value = mes;
+            opt.textContent = mes.charAt(0).toUpperCase() + mes.slice(1);
+            selector.appendChild(opt);
+        });
+    }
+    
+    updateDashboard();
+}
+
+// Poblar selector de meses
+function populateMonthSelector() {
+    const meses = new Set();
+    
+    allTickets.forEach(ticket => {
+        const fecha = parsearFecha(ticket.creada);
+        if (fecha) {
+            const mesCreada = fecha.toLocaleString('es-ES', {month: 'long', year: 'numeric'});
+            meses.add(mesCreada);
+        }
+    });
+    
+    const selectMes = document.getElementById('month-selector-dashboard');
+    const mesesOrdenados = Array.from(meses).sort((a, b) => {
+        const [mesA, añoA] = a.split(' de ');
+        const [mesB, añoB] = b.split(' de ');
+        const dateA = new Date(añoA + '-' + obtenerNumeroMes(mesA) + '-01');
+        const dateB = new Date(añoB + '-' + obtenerNumeroMes(mesB) + '-01');
+        return dateB - dateA;
+    });
+    
+    mesesOrdenados.forEach(mes => {
+        const option = document.createElement('option');
+        option.value = mes;
+        option.textContent = mes.charAt(0).toUpperCase() + mes.slice(1);
+        selectMes.appendChild(option);
+    });
+}
+
+function parsearFecha(fechaStr) {
+    if (!fechaStr) return null;
+    
+    const mesesAbrev = {
+        'ene': 0, 'feb': 1, 'mar': 2, 'abr': 3, 'may': 4, 'jun': 5,
+        'jul': 6, 'ago': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dic': 11
+    };
+    
+    // Formato: "15/ene/26 5:11 PM" o "15/ene/26"
+    const partes = fechaStr.split(' ')[0].split('/');
+    if (partes.length !== 3) return null;
+    
+    const dia = parseInt(partes[0]);
+    const mesStr = partes[1].toLowerCase();
+    const año = parseInt('20' + partes[2]);
+    
+    const mes = mesesAbrev[mesStr];
+    if (mes === undefined) return null;
+    
+    return new Date(año, mes, dia);
+}
+
+function obtenerNumeroMes(nombreMes) {
+    const meses = {
+        'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+        'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+        'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+    };
+    return meses[nombreMes.toLowerCase()] || '01';
+}
+
 // ==================== FUNCIONES DEL DASHBOARD ====================
 
 function updateDashboard() {
-    const sprint = document.getElementById('sprint-selector-dashboard').value;
-    const tickets = sprint === 'all' ? allTickets : allTickets.filter(t => t.sprint == sprint);
+    const tipoFiltro = document.getElementById('filter-type-selector').value;
+    const valorFiltro = document.getElementById('filter-value-selector').value;
+    
+    let tickets = allTickets;
+    
+    // Aplicar filtro según el tipo seleccionado
+    if (tipoFiltro === 'sprint' && valorFiltro !== 'all') {
+        tickets = tickets.filter(t => t.sprint == valorFiltro);
+    } else if (tipoFiltro === 'mes' && valorFiltro !== 'all') {
+        tickets = tickets.filter(t => {
+            const fecha = parsearFecha(t.creada);
+            if (!fecha) return false;
+            const mesCreada = fecha.toLocaleString('es-ES', {month: 'long', year: 'numeric'});
+            return mesCreada.toLowerCase() === valorFiltro.toLowerCase();
+        });
+    }
     
     const kpis = calcularKPIs(tickets);
     renderDashboardKPIs(kpis, tickets);
@@ -110,6 +249,11 @@ function calcularTiempoPromedio(tickets, prioridad) {
 function renderDashboardKPIs(kpis, tickets) {
     const container = document.getElementById('dashboard-kpis');
     
+    if (!container) {
+        console.error('Contenedor dashboard-kpis no encontrado');
+        return;
+    }
+    
     const html = `
         <div class="kpi-grid">
             <div class="kpi-card">
@@ -178,13 +322,14 @@ function renderDashboardKPIs(kpis, tickets) {
                     const curso = ticketsPrio.filter(t => t.estadoNormalizado === 'En curso').length;
                     const pend = ticketsPrio.filter(t => t.estadoNormalizado === 'Tareas por hacer').length;
                     const pct = total > 0 ? ((fin / total) * 100).toFixed(1) : 0;
-                    const sprintActual = document.getElementById('sprint-selector-dashboard').value;
+                    const tipoFiltro = document.getElementById('filter-type-selector').value;
+                    const valorFiltro = document.getElementById('filter-value-selector').value;
                     return `<tr>
                         <td><strong>${p}</strong></td>
-                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'all', '${sprintActual}'); return false;">${total}</a></td>
-                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'Finalizados', '${sprintActual}'); return false;">${fin}</a></td>
-                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'En curso', '${sprintActual}'); return false;">${curso}</a></td>
-                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'Tareas por hacer', '${sprintActual}'); return false;">${pend}</a></td>
+                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'all', '${tipoFiltro}', '${valorFiltro}'); return false;">${total}</a></td>
+                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'Finalizados', '${tipoFiltro}', '${valorFiltro}'); return false;">${fin}</a></td>
+                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'En curso', '${tipoFiltro}', '${valorFiltro}'); return false;">${curso}</a></td>
+                        <td><a href="#" class="clickable-number" onclick="showTicketDetailsByPriority('${p}', 'Tareas por hacer', '${tipoFiltro}', '${valorFiltro}'); return false;">${pend}</a></td>
                         <td>${pct}%</td>
                     </tr>`;
                 }).join('')}
@@ -222,6 +367,11 @@ function recalcularKPIs() {
 
 function renderEvolucion() {
     const tbody = document.getElementById('evolucion-tbody');
+    
+    if (!tbody) {
+        console.error('No se encontró el elemento evolucion-tbody');
+        return;
+    }
     
     // Agrupar por sprint
     const sprints = {};
@@ -285,7 +435,18 @@ function renderEvolucion() {
 
 function renderEvolutionChartProfessional(data) {
     const canvas = document.getElementById('evolutionChart');
+    
+    if (!canvas) {
+        console.error('No se encontró el canvas evolutionChart');
+        return;
+    }
+    
     const ctx = canvas.getContext('2d', { alpha: false });
+    
+    if (!ctx) {
+        console.error('No se pudo obtener el contexto del canvas');
+        return;
+    }
     
     // Habilitar suavizado
     ctx.imageSmoothingEnabled = true;
@@ -1096,6 +1257,102 @@ function eliminarIncidente(clave) {
     }
 }
 
+function importarCSV(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const text = e.target.result;
+            const lines = text.split('\\n').filter(line => line.trim());
+            
+            if (lines.length < 2) {
+                alert('❌ El archivo CSV está vacío o no tiene datos');
+                return;
+            }
+            
+            // Saltar la primera línea (encabezados)
+            const dataLines = lines.slice(1);
+            let importados = 0;
+            let errores = 0;
+            
+            dataLines.forEach((line, index) => {
+                try {
+                    // Parsear CSV considerando campos entre comillas
+                    const campos = [];
+                    let campo = '';
+                    let dentroComillas = false;
+                    
+                    for (let i = 0; i < line.length; i++) {
+                        const char = line[i];
+                        
+                        if (char === '"') {
+                            dentroComillas = !dentroComillas;
+                        } else if (char === ',' && !dentroComillas) {
+                            campos.push(campo.trim());
+                            campo = '';
+                        } else {
+                            campo += char;
+                        }
+                    }
+                    campos.push(campo.trim()); // Último campo
+                    
+                    // Validar que tenga al menos los campos esenciales
+                    if (campos.length < 3) {
+                        console.warn(`Línea ${index + 2} omitida: datos incompletos`);
+                        errores++;
+                        return;
+                    }
+                    
+                    const nuevoTicket = {
+                        clave: campos[0] || `INC-${Date.now()}-${index}`,
+                        resumen: campos[1] || 'Sin resumen',
+                        asignado: campos[2] || 'Sin asignar',
+                        prioridad: campos[3] || 'Medium',
+                        estado: campos[4] || 'Abierto',
+                        estadoNormalizado: campos[4] || 'Abierto',
+                        sprint: parseInt(campos[5]) || 0,
+                        creada: campos[6] || new Date().toLocaleDateString('es-ES'),
+                        actualizada: campos[7] || new Date().toLocaleDateString('es-ES'),
+                        resuelta: campos[8] || '',
+                        diasResolucion: campos[9] || ''
+                    };
+                    
+                    allTickets.push(nuevoTicket);
+                    importados++;
+                } catch (err) {
+                    console.error(`Error en línea ${index + 2}:`, err);
+                    errores++;
+                }
+            });
+            
+            // Actualizar vistas
+            renderIncidentes();
+            recalcularKPIs();
+            
+            // Limpiar el input
+            event.target.value = '';
+            
+            // Mostrar resultado
+            if (errores > 0) {
+                alert(`✅ Importación completada:\\n${importados} incidentes importados\\n${errores} líneas con errores (ver consola)`);
+            } else {
+                alert(`✅ ${importados} incidentes importados correctamente`);
+            }
+        } catch (error) {
+            console.error('Error al procesar CSV:', error);
+            alert('❌ Error al procesar el archivo CSV: ' + error.message);
+        }
+    };
+    
+    reader.onerror = function() {
+        alert('❌ Error al leer el archivo');
+    };
+    
+    reader.readAsText(file);
+}
+
 function exportarCSV() {
     let csv = 'Clave,Resumen,Asignado,Prioridad,Estado,Sprint,Creada,Actualizada,Resuelta,Dias_Resolucion\\n';
     
@@ -1124,6 +1381,17 @@ function showView(section, viewName) {
     const targetView = document.getElementById(viewName);
     if (targetView) {
         targetView.classList.add('active');
+        
+        // Renderizar contenido específico según la vista
+        if (viewName === 'evolucion') {
+            renderEvolucion();
+        } else if (viewName === 'resumen') {
+            updateResumen();
+        } else if (viewName === 'incidentes') {
+            renderIncidentes();
+        } else if (viewName === 'dashboard') {
+            updateDashboard();
+        }
     }
 }
 
@@ -1257,22 +1525,37 @@ document.addEventListener('click', function(e) {
 
 // ==================== MODAL POR PRIORIDAD Y ESTADO ====================
 
-function showTicketDetailsByPriority(prioridad, estado, sprint) {
+function showTicketDetailsByPriority(prioridad, estado, tipoFiltro, valorFiltro) {
     // Filtrar tickets
     let ticketsFiltrados = allTickets.filter(t => t.prioridad === prioridad);
     
-    // Filtrar por sprint si no es "all"
-    if (sprint !== 'all') {
-        ticketsFiltrados = ticketsFiltrados.filter(t => t.sprint == sprint);
+    // Aplicar filtro según el tipo
+    if (tipoFiltro === 'sprint' && valorFiltro !== 'all') {
+        ticketsFiltrados = ticketsFiltrados.filter(t => t.sprint == valorFiltro);
+    } else if (tipoFiltro === 'mes' && valorFiltro !== 'all') {
+        ticketsFiltrados = ticketsFiltrados.filter(t => {
+            const fecha = parsearFecha(t.creada);
+            if (!fecha) return false;
+            const mesCreada = fecha.toLocaleString('es-ES', {month: 'long', year: 'numeric'});
+            return mesCreada.toLowerCase() === valorFiltro.toLowerCase();
+        });
     }
     
     // Filtrar por estado si no es "all"
     let titulo = '';
+    let filtroTexto = '';
+    
+    if (valorFiltro === 'all') {
+        filtroTexto = tipoFiltro === 'sprint' ? 'Todos los Sprints' : 'Todos los Meses';
+    } else {
+        filtroTexto = tipoFiltro === 'sprint' ? `Sprint ${valorFiltro}` : valorFiltro.charAt(0).toUpperCase() + valorFiltro.slice(1);
+    }
+    
     if (estado === 'all') {
-        titulo = `Incidentes ${prioridad}${sprint !== 'all' ? ' - Sprint ' + sprint : ' - Todos los Sprints'}`;
+        titulo = `Incidentes ${prioridad} - ${filtroTexto}`;
     } else {
         ticketsFiltrados = ticketsFiltrados.filter(t => t.estadoNormalizado === estado);
-        titulo = `Incidentes ${prioridad} - ${estado}${sprint !== 'all' ? ' - Sprint ' + sprint : ' - Todos los Sprints'}`;
+        titulo = `Incidentes ${prioridad} - ${estado} - ${filtroTexto}`;
     }
     
     // Crear modal si no existe

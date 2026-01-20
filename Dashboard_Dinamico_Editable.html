@@ -858,6 +858,213 @@
             gap: 15px;
         }
         
+        /* MODAL DE DETALLES */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 90%;
+            max-height: 85vh;
+            width: 1200px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            animation: slideDown 0.3s ease;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .modal-header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 25px 30px;
+            border-radius: 16px 16px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header h2 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        
+        .modal-close {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            font-size: 32px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+        
+        .modal-close:hover {
+            background: rgba(255,255,255,0.3);
+            transform: rotate(90deg);
+        }
+        
+        .modal-body {
+            padding: 30px;
+            overflow-y: auto;
+            max-height: calc(85vh - 100px);
+        }
+        
+        .modal-summary {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .summary-label {
+            font-size: 14px;
+            color: #666;
+            font-weight: 600;
+        }
+        
+        .summary-value {
+            font-size: 28px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .modal-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+        
+        .modal-table thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .modal-table th {
+            color: white;
+            font-weight: 600;
+            padding: 14px 16px;
+            text-align: left;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+        
+        .modal-table tbody tr {
+            border-bottom: 1px solid #f0f0f0;
+            transition: background 0.2s ease;
+        }
+        
+        .modal-table tbody tr:hover {
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        .modal-table tbody tr:last-child {
+            border-bottom: none;
+        }
+        
+        .modal-table td {
+            padding: 12px 16px;
+            color: #333;
+            font-size: 13px;
+        }
+        
+        .priority-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .priority-highest { background: #ff4444; color: white; }
+        .priority-high { background: #ff8800; color: white; }
+        .priority-medium { background: #4CAF50; color: white; }
+        .priority-low { background: #2196F3; color: white; }
+        .priority-lowest { background: #9E9E9E; color: white; }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .status-finalizados { background: #28a745; color: white; }
+        .status-en-curso { background: #ffc107; color: #333; }
+        .status-tareas-por-hacer { background: #dc3545; color: white; }
+        
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-size: 15px;
+            font-style: italic;
+        }
+        
+        .clickable-number {
+            color: #667eea;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        
+        .clickable-number:hover {
+            background: rgba(102, 126, 234, 0.1);
+            color: #764ba2;
+            text-decoration: underline;
+        }
+        
         /* ESTILOS INSTRUCCIONES */
         .instruction-section {
             margin-bottom: 50px;
@@ -1210,15 +1417,24 @@
             <p><strong>Total de Tickets:</strong> <span id="total-tickets"></span></p>
         </div>
         
-        <div class="sprint-selector">
-            <label for="sprint-selector-dashboard">Seleccionar Sprint:</label>
-            <select id="sprint-selector-dashboard" onchange="updateDashboard()">
-                <option value="all">Todos los Sprints</option>
-                <option value="30">Sprint 30</option>
-                <option value="31">Sprint 31</option>
-                <option value="32" selected>Sprint 32 (Actual)</option>
-                <option value="33">Sprint 33</option>
-            </select>
+        <div class="sprint-selector" style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+            <div>
+                <label for="filter-type-selector">Filtrar por:</label>
+                <select id="filter-type-selector" onchange="cambiarTipoFiltro()">
+                    <option value="sprint">Sprint</option>
+                    <option value="mes">Mes</option>
+                </select>
+            </div>
+            <div id="filter-options-container">
+                <label for="filter-value-selector" id="filter-value-label">Seleccionar Sprint:</label>
+                <select id="filter-value-selector" onchange="updateDashboard()">
+                    <option value="all">Todos los Sprints</option>
+                    <option value="30">Sprint 30</option>
+                    <option value="31">Sprint 31</option>
+                    <option value="32" selected>Sprint 32 (Actual)</option>
+                    <option value="33">Sprint 33</option>
+                </select>
+            </div>
             <button class="btn btn-primary" onclick="recalcularKPIs()">🔄 Recalcular KPIs</button>
         </div>
         
@@ -1321,6 +1537,8 @@
         
         <button class="btn btn-primary" onclick="document.getElementById('add-row-form').style.display='block'">➕ Agregar Nuevo Incidente</button>
         <button class="btn btn-success" onclick="exportarCSV()">📥 Exportar a CSV</button>
+        <button class="btn btn-info" onclick="document.getElementById('import-csv-input').click()">📤 Importar CSV</button>
+        <input type="file" id="import-csv-input" accept=".csv" style="display:none" onchange="importarCSV(event)">
         
         <p><strong>Total de incidentes mostrados:</strong> <span id="count-incidentes">0</span></p>
         
@@ -1582,8 +1800,8 @@
         <div class="sprint-selector">
             <label for="month-selector-resumen-prd">Seleccionar Mes:</label>
             <select id="month-selector-resumen-prd" onchange="updateResumenPRD()">
-                <option value="all">Todos los Meses</option>
-                <option value="Enero 2026" selected>Enero 2026</option>
+                <option value="all" selected>Todos los Meses</option>
+                <option value="Enero 2026">Enero 2026</option>
                 <option value="Diciembre 2025">Diciembre 2025</option>
                 <option value="Noviembre 2025">Noviembre 2025</option>
                 <option value="Octubre 2025">Octubre 2025</option>
@@ -1611,26 +1829,43 @@
     <!-- TAB: BUGS PRD -->
     <div id="bugs-prd" class="tab-content">
         <div class="header-info">
-            <h1>� Incidentes de Producción - Registro Completo</h1>
+            <h1>🪲 Incidentes de Producción - Registro Completo</h1>
         </div>
         
-        <div class="sprint-selector">
-            <label for="month-selector-bugs-prd">Filtrar por Mes:</label>
-            <select id="month-selector-bugs-prd" onchange="filterBugsPRD()">
-                <option value="all">Todos los Meses</option>
-                <option value="Enero 2026">Enero 2026</option>
-                <option value="Diciembre 2025">Diciembre 2025</option>
-                <option value="Noviembre 2025">Noviembre 2025</option>
-                <option value="Octubre 2025">Octubre 2025</option>
-                <option value="Septiembre 2025">Septiembre 2025</option>
-                <option value="Agosto 2025">Agosto 2025</option>
-                <option value="Julio 2025">Julio 2025</option>
-                <option value="Junio 2025">Junio 2025</option>
-                <option value="Mayo 2025">Mayo 2025</option>
-                <option value="Abril 2025">Abril 2025</option>
-            </select>
-            <button class="btn btn-success" onclick="exportarTablaExcelPRD()">📥 Exportar a Excel</button>
+        <div class="editable-note">
+            ℹ️ <strong>Tabla Editable:</strong> Haz clic en cualquier celda para editarla. Los cambios se guardan automáticamente. Usa los filtros en cada columna para buscar incidentes específicos.
         </div>
+        
+        <div class="add-row-form" id="add-row-form-prd" style="display:none;">
+            <h3>➕ Agregar Nuevo Incidente de Producción</h3>
+            <div class="form-grid">
+                <input type="text" id="new-clave-prd" placeholder="Clave (ej: PROD-999)">
+                <input type="text" id="new-resumen-prd" placeholder="Resumen">
+                <input type="text" id="new-asignado-prd" placeholder="Persona asignada">
+                <input type="text" id="new-informador-prd" placeholder="Informador">
+                <select id="new-prioridad-prd">
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                    <option value="Highest">Highest</option>
+                    <option value="Low">Low</option>
+                </select>
+                <select id="new-estado-prd">
+                    <option value="Tareas por hacer">Tareas por hacer</option>
+                    <option value="En curso">En curso</option>
+                    <option value="Finalizada">Finalizada</option>
+                </select>
+                <input type="text" id="new-resolucion-prd" placeholder="Resolución">
+            </div>
+            <button class="btn btn-success" onclick="agregarBugPRD()">✅ Agregar Incidente</button>
+            <button class="btn" onclick="document.getElementById('add-row-form-prd').style.display='none'">❌ Cancelar</button>
+        </div>
+        
+        <button class="btn btn-primary" onclick="document.getElementById('add-row-form-prd').style.display='block'">➕ Agregar Nuevo Incidente</button>
+        <button class="btn btn-success" onclick="exportarTablaExcelPRD()">📥 Exportar a Excel</button>
+        <button class="btn btn-info" onclick="document.getElementById('import-csv-input-prd').click()">📤 Importar CSV</button>
+        <input type="file" id="import-csv-input-prd" accept=".csv" style="display:none" onchange="importarCSVPRD(event)">
+        
+        <p><strong>Total de incidentes mostrados:</strong> <span id="count-bugs-prd">0</span></p>
         
         <table id="bugs-prd-table">
             <thead>
@@ -1721,8 +1956,15 @@
     <script>
         // Inicializar la primera vista de QA al cargar
         document.addEventListener('DOMContentLoaded', function() {
-            // Mostrar el dashboard de QA por defecto
-            showView('qa', 'dashboard');
+            // Pequeño delay para asegurarnos de que todo esté inicializado
+            setTimeout(function() {
+                // Mostrar el dashboard de QA por defecto
+                showView('qa', 'dashboard');
+                // Actualizar el dashboard con los filtros por defecto
+                if (typeof updateDashboard === 'function') {
+                    updateDashboard();
+                }
+            }, 100);
         });
     </script>
 </body>

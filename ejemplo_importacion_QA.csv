@@ -1,0 +1,4 @@
+Clave,Resumen,Asignado,Prioridad,Estado,Sprint,Creada,Actualizada,Resuelta,Dias_Resolucion
+"QA-123","Error en validación de formulario","Juan Pérez","High","Abierto",32,"15/01/26","15/01/26","",""
+"QA-124","Bug en el login","María García","Medium","En Progreso",32,"16/01/26","17/01/26","",""
+"QA-125","Fallo en la carga de imágenes","Carlos López","Low","Finalizados",31,"10/01/26","18/01/26","19/01/26","9"
