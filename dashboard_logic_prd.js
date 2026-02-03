@@ -1055,15 +1055,9 @@ function showBugDetailsPRD(mes, tipo) {
 function showBugDetailsByPriorityPRD(prioridad, estado, mes) {
     let bugs = [...bugsPRD];
     
-    // Filtrar por mes si no es 'all'
+    // Filtrar por mes usando el campo 'mes' directamente
     if (mes !== 'all') {
-        const [mesNombre, year] = mes.split(' ');
-        bugs = bugs.filter(b => {
-            const fechaCreada = new Date(b.creada.split('/').reverse().join('-'));
-            const mesCreada = fechaCreada.toLocaleString('es-ES', {month: 'long'});
-            const añoCreada = fechaCreada.getFullYear();
-            return mesCreada.toLowerCase() === mesNombre.toLowerCase() && añoCreada === parseInt(year);
-        });
+        bugs = bugs.filter(b => b.mes === mes);
     }
     
     // Filtrar por prioridad
