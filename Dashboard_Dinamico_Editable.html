@@ -10,6 +10,8 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Estilos KPIs Avanzados -->
+    <link rel="stylesheet" href="dashboard_avanzados.css">
     <style>
         * {
             margin: 0;
@@ -1778,6 +1780,7 @@
                 <label for="qa-view-selector">SELECCIONA ÍTEM:</label>
                 <select id="qa-view-selector" onchange="showView('qa', this.value)" onclick="showView('qa', this.value)">
                     <option value="dashboard">▸ Dashboard KPIs</option>
+                    <option value="kpis-avanzados">▸ KPIs Avanzados</option>
                     <option value="evolucion">▸ Evolución Sprint</option>
                     <option value="resumen">▸ Resumen</option>
                     <option value="incidentes">▸ Actividades</option>
@@ -2058,6 +2061,11 @@
             <tbody id="incidentes-tbody">
             </tbody>
         </table>
+    </div>
+    
+    <!-- TAB: KPIS AVANZADOS -->
+    <div id="kpis-avanzados" class="tab-content">
+        <div id="kpis-avanzados-content"></div>
     </div>
     
     <!-- TAB: INSTRUCCIONES -->
@@ -2422,8 +2430,10 @@
     
     <script src="dashboard_data.js"></script>
     <script src="dashboard_data_prd.js"></script>
+    <script src="dashboard_changelog_data.js"></script>
     <script src="dashboard_logic.js"></script>
     <script src="dashboard_logic_prd.js"></script>
+    <script src="dashboard_kpis_avanzados.js"></script>
     
     <script>
         // Inicializar la primera vista de QA al cargar
