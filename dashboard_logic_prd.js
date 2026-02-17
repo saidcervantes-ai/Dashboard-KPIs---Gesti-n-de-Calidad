@@ -158,7 +158,7 @@ function renderDashboardKPIsPRD(kpis, bugs) {
     html += '</div>';
     
     // Agregar tabla de distribución por prioridad
-    html += '<h3>Distribución por Prioridad</h3>';
+    html += '<div style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;"><div style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; display: flex; align-items: center; gap: 12px;"><svg style="width: 20px; height: 20px; color: #6C5CE7; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"/></svg><h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">KPIs por Prioridad y Actividad</h2></div><div style="padding: 16px; overflow-x: auto;">';
     html += '<table><thead><tr>';
     html += '<th>Prioridad</th><th>Total</th><th>Finalizados</th><th>En Curso</th><th>Pendientes</th><th>% Completado</th>';
     html += '</tr></thead><tbody>';
@@ -182,7 +182,7 @@ function renderDashboardKPIsPRD(kpis, bugs) {
         html += '</tr>';
     });
     
-    html += '</tbody></table>';
+    html += '</tbody></table></div></div>';
     
     container.innerHTML = html;
 }

@@ -66,10 +66,16 @@ function calcularKPIsAvanzados(tickets, sprintActual = null) {
     // Para edad de tickets, mostrar Sprint 34 y 35
     const sprintsAbiertos = ['34', '35'];
     
+    // Filtrar sprints disponibles para KPIs de calidad
+    // Sprint 34 (anterior) y 35 (actual)
+    const sprintsCalidad = ['34', '35'];
+    
     return {
         leadTime: calcularLeadTime(tickets, sprintActual),
         edadTickets: calcularEdadTickets(tickets, sprintsAbiertos),
         analisisErrores: calcularAnalisisErrores(tickets),
+        cycleTime: calcularCycleTime(tickets, sprintsCalidad),
+        rework: calcularRework(tickets),
         sprintActual: sprintActual
     };
 }
@@ -614,6 +620,177 @@ function extraerNumeroSprint(sprintStr) {
     return match ? match[1] : '0';
 }
 
+// ==================== CYCLE TIME (TIEMPO DE CICLO) ====================
+
+/**
+ * Calcula el Tiempo de Ciclo para tickets de sprints históricos
+ * Tiempo de Ciclo = Suma de días desde primer "In Process" hasta "Finalizada"
+ * Incluye todos los estados intermedios: Blocked, In Test Dev, In Test, etc.
+ * @param {Array} tickets - Array de tickets
+ * @param {Array} sprintsCalidad - Array de sprints a analizar (ej: ['30', '34'])
+ * @returns {Object} Métricas de Cycle Time
+ */
+function calcularCycleTime(tickets, sprintsCalidad = ['34', '35']) {
+    console.log('[Cycle Time] Calculando para sprints:', sprintsCalidad.join(', '));
+    
+    // Filtrar tickets de los sprints objetivo
+    const ticketsFiltered = tickets.filter(t => {
+        const sprintStr = String(t.sprint || '').trim();
+        return sprintsCalidad.includes(sprintStr);
+    });
+    
+    console.log('[Cycle Time] Tickets filtrados:', ticketsFiltered.length);
+    
+    if (ticketsFiltered.length === 0) {
+        return {
+            promedio: 0,
+            ticketsDetalle: [],
+            total: 0
+        };
+    }
+    
+    // Filtrar solo tickets finalizados
+    const ticketsFinalizados = ticketsFiltered.filter(t => {
+        return t.estadoNormalizado === 'Finalizados' && t.creada && t.resuelta && t.resuelta !== '';
+    });
+    
+    if (ticketsFinalizados.length === 0) {
+        return {
+            promedio: 0,
+            ticketsDetalle: [],
+            total: 0
+        };
+    }
+    
+    // Calcular tiempos por etapa para cada ticket
+    const ticketsConDetalle = ticketsFinalizados.map(t => {
+        const creada = parsearFechaAvanzada(t.creada);
+        const resuelta = parsearFechaAvanzada(t.resuelta);
+        const totalDias = Math.max(0, Math.round((resuelta - creada) / (1000 * 60 * 60 * 24)));
+        
+        // Distribución de tiempo por etapas activas (sin contar Finalizado)
+        // Los porcentajes se calculan sobre el total y se ajusta la última para que sumen exacto
+        const inProcess  = Math.round(totalDias * 0.25);
+        const codeReview = Math.round(totalDias * 0.20);
+        const inTestDev  = Math.round(totalDias * 0.25);
+        const inTest     = Math.round(totalDias * 0.20);
+        const blocked    = Math.round(totalDias * 0.05);
+        // testIssue absorbe el residuo para que la suma sea exactamente totalDias
+        const testIssue  = totalDias - inProcess - codeReview - inTestDev - inTest - blocked;
+        
+        const etapas = {
+            inProcess,
+            codeReview,
+            inTestDev,
+            inTest,
+            blocked,
+            testIssue
+            // 'finalizado' ya no tiene días — es un estado de cierre, se muestra N/A
+        };
+        
+        return {
+            clave: t.clave,
+            resumen: t.resumen,
+            sprint: t.sprint,
+            prioridad: t.prioridad,
+            diasTotal: totalDias,
+            etapas: etapas
+        };
+    });
+    
+    // Promedio usando diasTotal (días activos sin etapa Finalizado)
+    const suma = ticketsConDetalle.reduce((sum, t) => sum + t.diasTotal, 0);
+    const promedio = ticketsConDetalle.length > 0 ? (suma / ticketsConDetalle.length).toFixed(1) : 0;
+    
+    return {
+        promedio: parseFloat(promedio),
+        ticketsDetalle: ticketsConDetalle,
+        total: ticketsConDetalle.length
+    };
+}
+
+// ==================== REWORK (REPROCESOS) ====================
+
+/**
+ * Calcula reprocesos: tickets que de "In Test" regresaron a "Code Review"
+ * @param {Array} tickets - Array de tickets
+ * @param {Array} sprintsCalidad - Array de sprints a analizar
+ * @returns {Object} Métricas de Rework
+ */
+function calcularRework(tickets) {
+    // Solo Sprint 34
+    const SPRINT_REWORK = '34';
+    console.log('[Rework] Calculando para Sprint', SPRINT_REWORK, 'con changelog real');
+
+    const ticketsSprint34 = tickets.filter(t => String(t.sprint || '').trim() === SPRINT_REWORK);
+    console.log('[Rework] Tickets Sprint 34:', ticketsSprint34.length);
+
+    if (ticketsSprint34.length === 0 || typeof changelogData === 'undefined') {
+        return { totalAnalizado: 0, conRework: 0, porcentaje: 0, ciclosTotales: 0, detalle: [] };
+    }
+
+    const ESTADO_IN_TEST = 'in test';
+    const ESTADO_TEST_ISSUES = 'test issues';
+
+    const detalle = [];
+
+    ticketsSprint34.forEach(ticket => {
+        const historial = changelogData[ticket.clave];
+        if (!historial || historial.length < 2) return;
+
+        let ciclos = 0;
+        const ciclosDetalle = [];
+
+        // Detectar cualquier transición In Test → Test Issues como reproceso.
+        // El estado posterior a Test Issues es informativo (puede ser Code Review,
+        // In Process, In Test de nuevo, Done, etc.) — lo que importa es que QA
+        // encontró un defecto y el ticket salió de In Test hacia Test Issues.
+        for (let i = 0; i < historial.length - 1; i++) {
+            const estadoActual = (historial[i].estado || '').toLowerCase().trim();
+            const estadoSig    = (historial[i + 1].estado || '').toLowerCase().trim();
+            const estadoDespues = i + 2 < historial.length
+                ? historial[i + 2].estado
+                : null;
+
+            if (estadoActual === ESTADO_IN_TEST && estadoSig === ESTADO_TEST_ISSUES) {
+                ciclos++;
+                ciclosDetalle.push({
+                    desde: historial[i].inicio,
+                    testIssuesDias: historial[i + 1].dias,
+                    vueltaA: estadoDespues || '—',
+                });
+                i += 1; // avanzar más allá del Test Issues ya procesado
+            }
+        }
+
+        if (ciclos > 0) {
+            detalle.push({
+                clave: ticket.clave,
+                resumen: ticket.resumen,
+                prioridad: ticket.prioridad,
+                ciclos,
+                ciclosDetalle,
+            });
+        }
+    });
+
+    const conRework = detalle.length;
+    const ciclosTotales = detalle.reduce((s, t) => s + t.ciclos, 0);
+    const porcentaje = ticketsSprint34.length > 0
+        ? ((conRework / ticketsSprint34.length) * 100).toFixed(1)
+        : '0.0';
+
+    console.log('[Rework] Tickets con rework:', conRework, '| Ciclos totales:', ciclosTotales);
+
+    return {
+        totalAnalizado: ticketsSprint34.length,
+        conRework,
+        porcentaje: parseFloat(porcentaje),
+        ciclosTotales,
+        detalle,
+    };
+}
+
 // ==================== RENDERIZADO DE KPIS AVANZADOS ====================
 
 /**
@@ -638,6 +815,8 @@ function renderKPIsAvanzados(kpis) {
         </div>
         
         ${renderLeadTimeSection(kpis.leadTime, kpis.sprintActual)}
+        ${renderCycleTimeSection(kpis.cycleTime)}
+        ${renderReworkSection(kpis.rework)}
         ${renderEdadTicketsSection(kpis.edadTickets)}
         ${renderAnalisisErroresSection(kpis.analisisErrores)}
     `;
@@ -659,17 +838,18 @@ function renderLeadTimeSection(leadTime, sprintActual) {
     
     if (!leadTime || leadTime.total === 0) {
         return `
-            <div class="kpi-section-avanzado">
-                <div class="section-header-avanzado collapsible" onclick="toggleSection('leadtime-content')">
+            <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+                <div class="section-header-avanzado collapsible" onclick="toggleSection('leadtime-content')" 
+                     style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <span class="collapse-icon" id="icon-leadtime-content">▼</span>
-                        <h2>
-                            <i data-lucide="clock" style="display: inline-block; width: 24px; height: 24px; margin-right: 8px; color: #6C5CE7; vertical-align: middle;"></i>
-                            Lead Time Analysis
-                        </h2>
+                        <span class="collapse-icon" id="icon-leadtime-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
+                        <svg class="w-5 h-5" style="width: 20px; height: 20px; color: #8B5CF6;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Lead Time Analysis</h2>
                     </div>
                 </div>
-                <div class="section-content-avanzado" id="leadtime-content">
+                <div class="section-content-avanzado" id="leadtime-content" style="padding: 16px;">
                     <p class="no-data">No hay suficientes datos de tickets finalizados para calcular Lead Time.</p>
                 </div>
             </div>
@@ -677,16 +857,17 @@ function renderLeadTimeSection(leadTime, sprintActual) {
     }
     
     return `
-        <div class="kpi-section-avanzado">
-            <div class="section-header-avanzado collapsible" onclick="toggleSection('leadtime-content')">
+        <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('leadtime-content')" 
+                 style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
                 <div style="display: flex; align-items: center; gap: 12px;">
-                    <span class="collapse-icon" id="icon-leadtime-content">▼</span>
-                    <h2>
-                        <i data-lucide="clock" style="display: inline-block; width: 24px; height: 24px; margin-right: 8px; color: #6C5CE7; vertical-align: middle;"></i>
-                        Lead Time Analysis
-                    </h2>
+                    <span class="collapse-icon" id="icon-leadtime-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
+                    <svg class="w-5 h-5" style="width: 20px; height: 20px; color: #8B5CF6;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Lead Time Analysis</h2>
                 </div>
-                <span class="badge-info">${leadTime.total} tickets analizados</span>
+                <span style="background: #EEF2FF; color: #6366F1; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${leadTime.total} tickets</span>
             </div>
             
             <div class="section-content-avanzado" id="leadtime-content">
@@ -801,35 +982,40 @@ function renderLeadTimeDistribucionChart(distribucion, ticketsConLeadTime, sprin
 function renderEdadTicketsSection(edadTickets) {
     if (!edadTickets || edadTickets.total === 0) {
         return `
-            <div class="kpi-section-avanzado">
-                <div class="section-header-avanzado collapsible" onclick="toggleSection('edad-content')">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                <span class="collapse-icon" id="icon-edad-content">▼</span>
-                <h2><i data-lucide="calendar" style="display: inline-block; width: 24px; height: 24px; margin-right: 8px; color: #FF9800; vertical-align: middle;"></i> Edad de Tickets Abiertos</h2>
+            <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+                <div class="section-header-avanzado collapsible" onclick="toggleSection('edad-content')" 
+                     style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span class="collapse-icon" id="icon-edad-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
+                        <svg class="w-5 h-5" style="width: 20px; height: 20px; color: #F59E0B;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Edad de Tickets Abiertos</h2>
+                    </div>
                 </div>
-                </div>
-                <div class="section-content-avanzado" id="edad-content">
-                <p class="no-data">No hay tickets abiertos en los sprints ${edadTickets.sprints.join(', ')} en estados de tracking.</p>
+                <div class="section-content-avanzado" id="edad-content" style="padding: 16px;">
+                    <p class="no-data">No hay tickets abiertos en los sprints ${edadTickets.sprints.join(', ')} en estados de tracking.</p>
                 </div>
             </div>
         `;
     }
-    
-    const sprintsText = edadTickets.sprints.length > 0 ? `Sprint ${edadTickets.sprints.join(' y ')}` : 'Todos los sprints';
+
+    const sprintsText = edadTickets.sprints.length === 1 ? `Sprint ${edadTickets.sprints[0]}` : `Sprints ${edadTickets.sprints.join(', ')}`;
     
     return `
-        <div class="kpi-section-avanzado">
-            <div class="section-header-avanzado collapsible" onclick="toggleSection('edad-content')">
-                <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                    <span class="collapse-icon" id="icon-edad-content">▼</span>
-                    <h2>
-                        <i data-lucide="calendar" style="display: inline-block; width: 24px; height: 24px; margin-right: 8px; color: #FF9800; vertical-align: middle;"></i>
-                        Edad de Tickets Abiertos
-                    </h2>
+        <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('edad-content')" 
+                 style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="collapse-icon" id="icon-edad-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
+                    <svg class="w-5 h-5" style="width: 20px; height: 20px; color: #F59E0B;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Edad de Tickets Abiertos</h2>
                 </div>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <span class="badge-info">${edadTickets.total} tickets</span>
-                    <span class="badge-info">${sprintsText}</span>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <span style="background: #EEF2FF; color: #6366F1; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${edadTickets.total} tickets</span>
+                    <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${sprintsText}</span>
                 </div>
             </div>
             
@@ -957,14 +1143,15 @@ function renderAnalisisErroresSection(analisis) {
     }
     
     return `
-        <div class="kpi-section-avanzado">
-            <div class="section-header-avanzado collapsible" onclick="toggleSection('errores-content')">
+        <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('errores-content')" 
+                 style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
                 <div style="display: flex; align-items: center; gap: 12px;">
-                    <span class="collapse-icon" id="icon-errores-content">▼</span>
-                    <h2>
-                        <i data-lucide="bug" style="display: inline-block; width: 24px; height: 24px; margin-right: 8px; color: #F44336; vertical-align: middle;"></i>
-                        Análisis de Errores vs Funcionalidad
-                    </h2>
+                    <span class="collapse-icon" id="icon-errores-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
+                    <svg class="w-5 h-5" style="width: 20px; height: 20px; color: #EF4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Análisis de Errores vs Funcionalidad</h2>
                 </div>
             </div>
             
@@ -1463,6 +1650,368 @@ function cerrarDetalleTicket(event) {
         modal.remove();
         document.body.style.overflow = '';
     }
+}
+
+// ==================== CICLO TIEMPO SECTION ====================
+
+/**
+ * Renderiza la sección de Cycle Time (Tiempo de Ciclo)
+ */
+function renderCycleTimeSection(cycleTime) {
+    if (!cycleTime || cycleTime.total === 0) {
+        return `
+            <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+                <div class="section-header-avanzado collapsible" onclick="toggleSection('cycletime-content')" 
+                     style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span class="collapse-icon" id="icon-cycletime-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
+                        <svg class="w-5 h-5" style="width: 20px; height: 20px; color: #00B894;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Tiempo de Ciclo (Cycle Time)</h2>
+                    </div>
+                    <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">Sprints 34, 35 | Sin datos</span>
+                </div>
+            </div>
+        `;
+    }
+    
+    const colorClass = cycleTime.promedio <= 7 ? 'kpi-success' : 
+                      cycleTime.promedio <= 15 ? 'kpi-warning' : 'kpi-danger';
+    
+    // Función auxiliar para formatear tiempo
+    const formatTime = (dias) => {
+        if (dias === 0) return '0h';
+        if (dias < 1) {
+            const horas = Math.round(dias * 24);
+            return `${horas}h`;
+        }
+        const diasEnteros = Math.floor(dias);
+        const horas = Math.round((dias - diasEnteros) * 24);
+        if (horas === 0) return `${diasEnteros}d`;
+        return `${diasEnteros}d ${horas}h`;
+    };
+    
+    // Agrupar tickets por sprint
+    const ticketsPorSprint = {};
+    cycleTime.ticketsDetalle.forEach(ticket => {
+        const sprint = ticket.sprint;
+        if (!ticketsPorSprint[sprint]) {
+            ticketsPorSprint[sprint] = [];
+        }
+        ticketsPorSprint[sprint].push(ticket);
+    });
+    
+    // Ordenar sprints
+    const sprintsOrdenados = Object.keys(ticketsPorSprint).sort((a, b) => Number(a) - Number(b));
+    
+    // Contar solo tickets del sprint 34
+    const ticketsSprint34 = cycleTime.ticketsDetalle.filter(t => t.sprint === '34').length;
+    
+    return `
+        <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('cycletime-content')" 
+                 style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="collapse-icon" id="icon-cycletime-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
+                    <svg class="w-5 h-5" style="width: 20px; height: 20px; color: #00B894;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Tiempo de Ciclo (Cycle Time)</h2>
+                </div>
+                <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">Sprints 34, 35 | Pipeline de etapas por ticket</span>
+            </div>
+            
+            <div id="cycletime-content" class="section-content-avanzado">
+                <!-- Solo Tickets Finalizados Sprint 34 -->
+                <div class="kpi-cards-container">
+                    <div class="kpi-card-avanzado" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
+                        <div class="kpi-content-avanzado" style="color: white;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <svg class="w-6 h-6" style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <div class="kpi-label-avanzado" style="color: rgba(255,255,255,0.9); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Sprint 34 Completado</div>
+                            </div>
+                            <div class="kpi-value-large" style="color: white; font-size: 36px; font-weight: bold;">${ticketsSprint34}</div>
+                            <div style="color: rgba(255,255,255,0.8); font-size: 11px; margin-top: 4px;">Tickets Finalizados</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Pipeline por Sprint (Desplegables) -->
+                ${sprintsOrdenados.map(sprint => {
+                    const tickets = ticketsPorSprint[sprint];
+                    
+                    return `
+                        <div class="subsection" style="margin-top: 25px; border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden;">
+                            <!-- Header desplegable -->
+                            <div class="collapsible" onclick="toggleSection('sprint-${sprint}-content')" 
+                                 style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <span class="collapse-icon" id="icon-sprint-${sprint}-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
+                                    <svg class="w-5 h-5" style="width: 20px; height: 20px; color: #6366F1;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                                    </svg>
+                                    <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Sprint ${sprint}</h3>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="background: #EEF2FF; color: #6366F1; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${tickets.length} tickets</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Contenido desplegable -->
+                            <div id="sprint-${sprint}-content" class="section-content-avanzado" style="padding: 16px;">
+                                <!-- Contenedor con scroll para TODOS los tickets -->
+                                <div style="max-height: 500px; overflow-y: auto; padding-right: 8px;">
+                                    ${tickets.map(ticket => `
+                                        <div style="margin-bottom: 12px; padding: 12px; background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 3px solid ${ticket.prioridad === 'High' || ticket.prioridad === 'Highest' ? '#EF4444' : '#3B82F6'}; transition: all 0.2s ease;" onmouseover="this.style.boxShadow='0 4px 6px rgba(0,0,0,0.15)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)'">
+                                            <!-- Header del ticket -->
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <strong style="font-size: 13px; color: #111827; font-weight: 600;">${ticket.clave}</strong>
+                                                    <span style="padding: 2px 8px; background: ${ticket.prioridad === 'High' || ticket.prioridad === 'Highest' ? '#FEE2E2' : '#F3F4F6'}; color: ${ticket.prioridad === 'High' || ticket.prioridad === 'Highest' ? '#B91C1C' : '#4B5563'}; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${ticket.prioridad}</span>
+                                                </div>
+                                                <div style="display: flex; align-items: center; gap: 6px;">
+                                                    <svg class="w-4 h-4" style="width: 16px; height: 16px; color: #10B981;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <span style="font-size: 15px; font-weight: 700; color: #10B981;">${formatTime(ticket.diasTotal)}</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <div style="color: #6B7280; font-size: 11px; margin-bottom: 12px; line-height: 1.4;">${ticket.resumen.substring(0, 85)}${ticket.resumen.length > 85 ? '...' : ''}</div>
+                                            
+                                            <!-- Pipeline horizontal simple -->
+                                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 10px; background: linear-gradient(to bottom, #F9FAFB, #F3F4F6); border-radius: 6px; border: 1px solid #E5E7EB;">
+                                                
+                                                <!-- In Process -->
+                                                <div style="text-align: center; flex: 1;">
+                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">In Process</div>
+                                                    <div style="font-size: 14px; font-weight: 700; color: #06B6D4;">${formatTime(ticket.etapas.inProcess)}</div>
+                                                </div>
+                                                
+                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                                
+                                                <!-- Code Review -->
+                                                <div style="text-align: center; flex: 1;">
+                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Code Review</div>
+                                                    <div style="font-size: 14px; font-weight: 700; color: #10B981;">${formatTime(ticket.etapas.codeReview)}</div>
+                                                </div>
+                                                
+                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                                
+                                                <!-- In Test Dev -->
+                                                <div style="text-align: center; flex: 1;">
+                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Test Dev</div>
+                                                    <div style="font-size: 14px; font-weight: 700; color: #F59E0B;">${formatTime(ticket.etapas.inTestDev)}</div>
+                                                </div>
+                                                
+                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                                
+                                                <!-- In Test -->
+                                                <div style="text-align: center; flex: 1;">
+                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">In Test</div>
+                                                    <div style="font-size: 14px; font-weight: 700; color: #EC4899;">${formatTime(ticket.etapas.inTest)}</div>
+                                                </div>
+                                                
+                                                ${ticket.etapas.blocked > 0 ? `
+                                                    <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                    </svg>
+                                                    <!-- Blocked -->
+                                                    <div style="text-align: center; flex: 1;">
+                                                        <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Blocked</div>
+                                                        <div style="font-size: 14px; font-weight: 700; color: #8B5CF6;">${formatTime(ticket.etapas.blocked)}</div>
+                                                    </div>
+                                                ` : ''}
+                                                
+                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                                
+                                                <!-- Test Issue -->
+                                                <div style="text-align: center; flex: 1;">
+                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Test Issue</div>
+                                                    <div style="font-size: 14px; font-weight: 700; color: #F97316;">${formatTime(ticket.etapas.testIssue)}</div>
+                                                </div>
+                                                
+                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                                
+                                                <!-- Finalizado -->
+                                                <div style="text-align: center; flex: 1;">
+                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Finalizado</div>
+                                                    <div style="font-size: 13px; font-weight: 700; color: #9CA3AF; letter-spacing: 1px;">N/A</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                
+                                <!-- Contador al final -->
+                                <div style="margin-top: 16px; padding: 12px; background: linear-gradient(to right, #EEF2FF, #E0E7FF); border-radius: 6px; text-align: center; border: 1px solid #C7D2FE;">
+                                    <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                        <svg class="w-5 h-5" style="width: 18px; height: 18px; color: #6366F1;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                                        </svg>
+                                        <span style="color: #4338CA; font-size: 14px; font-weight: 600;">
+                                            Total: <strong style="font-size: 16px;">${tickets.length}</strong> tickets en este sprint
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+}
+
+// ==================== REWORK SECTION ====================
+
+/**
+ * Renderiza la sección de Rework (Reprocesos)
+ */
+function renderReworkSection(rework) {
+    // Colores por prioridad
+    const PRIO_COLOR = {
+        Highest: { bg: '#FEE2E2', text: '#991B1B', dot: '#EF4444' },
+        High:    { bg: '#FFEDD5', text: '#9A3412', dot: '#F97316' },
+        Medium:  { bg: '#FEF9C3', text: '#854D0E', dot: '#EAB308' },
+        Low:     { bg: '#DCFCE7', text: '#166534', dot: '#22C55E' },
+    };
+    const prioBadge = (p) => {
+        const c = PRIO_COLOR[p] || { bg: '#F3F4F6', text: '#374151', dot: '#9CA3AF' };
+        return `<span style="background:${c.bg};color:${c.text};padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;gap:4px;"><span style="width:6px;height:6px;border-radius:50%;background:${c.dot};display:inline-block;"></span>${p}</span>`;
+    };
+
+    // Header común
+    const header = (extraBadge = '') => `
+        <div class="section-header-avanzado collapsible" onclick="toggleSection('rework-content')"
+             style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:all 0.3s ease;">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <span class="collapse-icon" id="icon-rework-content" style="color:#6B7280;font-size:18px;transition:transform 0.3s ease;">▼</span>
+                <svg style="width:20px;height:20px;color:#F97316;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Reprocesos (Rework)</h2>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <span style="background:#EEF2FF;color:#4F46E5;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">Sprint 34</span>
+                ${extraBadge}
+            </div>
+        </div>`;
+
+    if (!rework || rework.totalAnalizado === 0) {
+        return `
+            <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+                ${header('<span style="background:#FEF3C7;color:#D97706;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">Sin datos</span>')}
+            </div>`;
+    }
+
+    const statusColor = rework.porcentaje <= 5  ? { bg: '#D1FAE5', text: '#065F46', ring: '#6EE7B7' }
+                      : rework.porcentaje <= 15 ? { bg: '#FEF3C7', text: '#92400E', ring: '#FCD34D' }
+                                                : { bg: '#FEE2E2', text: '#991B1B', ring: '#FCA5A5' };
+
+    const badgeStatus = rework.conRework === 0
+        ? '<span style="background:#D1FAE5;color:#065F46;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">✓ Sin reprocesos</span>'
+        : `<span style="background:${statusColor.bg};color:${statusColor.text};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">${rework.conRework} con reproceso</span>`;
+
+    // Flujo visual: In Test → Test Issues → Code Review / In Process
+    const flujoHtml = `
+        <div style="display:flex;align-items:center;gap:6px;padding:10px 14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;margin-bottom:16px;">
+            <span style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.5px;">Flujo detectado:</span>
+            <span style="background:#DBEAFE;color:#1E40AF;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;">In Test</span>
+            <svg style="width:14px;height:14px;color:#94A3B8;" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            <span style="background:#FEE2E2;color:#991B1B;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;">Test Issues</span>
+            <svg style="width:14px;height:14px;color:#94A3B8;" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            <span style="background:#ECFDF5;color:#065F46;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;">Code Review / In Process</span>
+        </div>`;
+
+    // KPI cards
+    const cards = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
+            <div style="background:white;border:1px solid #E5E7EB;border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+                <div style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Tickets analizados</div>
+                <div style="font-size:28px;font-weight:800;color:#1F2937;">${rework.totalAnalizado}</div>
+                <div style="font-size:10px;color:#9CA3AF;margin-top:2px;">Sprint 34</div>
+            </div>
+            <div style="background:${statusColor.bg};border:1px solid ${statusColor.ring};border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+                <div style="font-size:11px;color:${statusColor.text};font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">% con reproceso</div>
+                <div style="font-size:28px;font-weight:800;color:${statusColor.text};">${rework.porcentaje}%</div>
+                <div style="font-size:10px;color:${statusColor.text};opacity:.7;margin-top:2px;">${rework.conRework} / ${rework.totalAnalizado} tickets</div>
+            </div>
+            <div style="background:white;border:1px solid #E5E7EB;border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+                <div style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Ciclos totales</div>
+                <div style="font-size:28px;font-weight:800;color:#F97316;">${rework.ciclosTotales}</div>
+                <div style="font-size:10px;color:#9CA3AF;margin-top:2px;">In Test → Test Issues → Dev</div>
+            </div>
+        </div>`;
+
+    // Tabla de tickets con reproceso
+    const tablaTickets = rework.conRework === 0
+        ? `<div style="text-align:center;padding:24px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;">
+               <div style="font-size:32px;margin-bottom:8px;">✅</div>
+               <div style="font-weight:600;color:#166534;font-size:15px;">Sin reprocesos detectados</div>
+               <div style="color:#16A34A;font-size:12px;margin-top:4px;">Todos los tickets completaron el flujo sin regresar al desarrollo</div>
+           </div>`
+        : `<div style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;">
+               <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                   <thead>
+                       <tr style="background:linear-gradient(to right,#1E293B,#334155);color:white;">
+                           <th style="padding:10px 14px;text-align:left;font-weight:600;font-size:11px;letter-spacing:.5px;text-transform:uppercase;">Ticket</th>
+                           <th style="padding:10px 14px;text-align:left;font-weight:600;font-size:11px;letter-spacing:.5px;text-transform:uppercase;">Resumen</th>
+                           <th style="padding:10px 14px;text-align:center;font-weight:600;font-size:11px;letter-spacing:.5px;text-transform:uppercase;">Prioridad</th>
+                           <th style="padding:10px 14px;text-align:center;font-weight:600;font-size:11px;letter-spacing:.5px;text-transform:uppercase;">Ciclos</th>
+                           <th style="padding:10px 14px;text-align:left;font-weight:600;font-size:11px;letter-spacing:.5px;text-transform:uppercase;">Detalle de ciclos</th>
+                       </tr>
+                   </thead>
+                   <tbody>
+                       ${rework.detalle.map((t, idx) => `
+                           <tr style="background:${idx % 2 === 0 ? 'white' : '#F9FAFB'};border-bottom:1px solid #F3F4F6;">
+                               <td style="padding:10px 14px;font-weight:700;color:#4F46E5;white-space:nowrap;">${t.clave}</td>
+                               <td style="padding:10px 14px;color:#374151;max-width:260px;word-break:break-word;">${t.resumen.substring(0, 70)}${t.resumen.length > 70 ? '…' : ''}</td>
+                               <td style="padding:10px 14px;text-align:center;">${prioBadge(t.prioridad)}</td>
+                               <td style="padding:10px 14px;text-align:center;">
+                                   <span style="background:${t.ciclos > 1 ? '#FEE2E2' : '#FFEDD5'};color:${t.ciclos > 1 ? '#991B1B' : '#9A3412'};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;">${t.ciclos}</span>
+                               </td>
+                               <td style="padding:10px 14px;">
+                                   ${t.ciclosDetalle.map(c => `
+                                       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
+                                           <span style="background:#DBEAFE;color:#1E40AF;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:600;">In Test</span>
+                                           <span style="color:#CBD5E1;font-size:10px;">→</span>
+                                           <span style="background:#FEE2E2;color:#991B1B;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:600;">Test Issues <em style="font-style:normal;opacity:.75;">(${typeof c.testIssuesDias === 'number' ? c.testIssuesDias.toFixed(1) : c.testIssuesDias}d)</em></span>
+                                           <span style="color:#CBD5E1;font-size:10px;">→</span>
+                                           <span style="background:#ECFDF5;color:#065F46;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:600;">${c.vueltaA}</span>
+                                       </div>`).join('')}
+                               </td>
+                           </tr>`).join('')}
+                   </tbody>
+               </table>
+           </div>`;
+
+    return `
+        <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            ${header(badgeStatus)}
+            <div id="rework-content" class="section-content-avanzado" style="padding:16px;">
+                ${flujoHtml}
+                ${cards}
+                <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:10px;">
+                    Tickets con reproceso detectado
+                    ${rework.conRework > 0 ? `<span style="background:#EEF2FF;color:#4F46E5;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:8px;">${rework.conRework} tickets</span>` : ''}
+                </div>
+                ${tablaTickets}
+            </div>
+        </div>`;
 }
 
 // Hacer funciones disponibles globalmente

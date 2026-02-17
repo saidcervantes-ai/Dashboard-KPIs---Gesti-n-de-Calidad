@@ -579,80 +579,15 @@ function renderDashboardKPIs(kpis, tickets) {
                 </div>
             </div>
             
-            <div class="kpi-card-modern">
-                <div class="kpi-icon-wrapper" style="background: linear-gradient(135deg, rgba(233, 30, 99, 0.1), rgba(233, 30, 99, 0.05));">
-                    <i data-lucide="zap" style="color: #E91E63; width: 24px; height: 24px;"></i>
-                </div>
-                <div class="kpi-content">
-                    <div class="kpi-label">Tiempo Highest</div>
-                    <div class="kpi-value kpi-value-clickable" onclick="showKPITickets('tiempoHighest')" title="Click para ver tickets"><span>${kpis.tiempoHighest}</span> <span class="kpi-unit">días</span></div>
-                    <div class="kpi-badge ${kpis.tiempoHighest <= 2 ? 'badge-success' : 'badge-warning'}">
-                        ${kpis.tiempoHighest <= 2 ? 'Cumple' : 'Revisar'}
-                    </div>
-                </div>
-            </div>
-            
-            <div class="kpi-card-modern">
-                <div class="kpi-icon-wrapper" style="background: linear-gradient(135deg, rgba(255, 87, 34, 0.1), rgba(255, 87, 34, 0.05));">
-                    <i data-lucide="trending-up" style="color: #FF5722; width: 24px; height: 24px;"></i>
-                </div>
-                <div class="kpi-content">
-                    <div class="kpi-label">Tiempo High</div>
-                    <div class="kpi-value kpi-value-clickable" onclick="showKPITickets('tiempoHigh')" title="Click para ver tickets"><span>${kpis.tiempoHigh}</span> <span class="kpi-unit">días</span></div>
-                    <div class="kpi-badge ${kpis.tiempoHigh <= 5 ? 'badge-success' : 'badge-warning'}">
-                        ${kpis.tiempoHigh <= 5 ? 'Cumple' : 'Revisar'}
-                    </div>
-                </div>
-            </div>
-            
-            <div class="kpi-card-modern">
-                <div class="kpi-icon-wrapper" style="background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(33, 150, 243, 0.05));">
-                    <i data-lucide="timer" style="color: #2196F3; width: 24px; height: 24px;"></i>
-                </div>
-                <div class="kpi-content">
-                    <div class="kpi-label">Tiempo Medium</div>
-                    <div class="kpi-value kpi-value-clickable" onclick="showKPITickets('tiempoMedium')" title="Click para ver tickets"><span>${kpis.tiempoMedium}</span> <span class="kpi-unit">días</span></div>
-                    <div class="kpi-badge ${kpis.tiempoMedium <= 15 ? 'badge-success' : 'badge-warning'}">
-                        ${kpis.tiempoMedium <= 15 ? 'Cumple' : 'Revisar'}
-                    </div>
-                </div>
-            </div>
-            
-            <div class="kpi-card-modern">
-                <div class="kpi-icon-wrapper" style="background: linear-gradient(135deg, rgba(0, 150, 136, 0.1), rgba(0, 150, 136, 0.05));">
-                    <i data-lucide="rotate-ccw" style="color: #009688; width: 24px; height: 24px;"></i>
-                </div>
-                <div class="kpi-content">
-                    <div class="kpi-label">Tasa Reapertura</div>
-                    <div class="kpi-value">${kpis.tasaReapertura}%</div>
-                    <div class="kpi-badge badge-success">Cumple</div>
-                </div>
-            </div>
-            
-            <div class="kpi-card-modern kpi-highlight" style="background: linear-gradient(135deg, #00BCD4 0%, #0097A7 100%);">
-                <div class="kpi-icon-wrapper" style="background: rgba(255, 255, 255, 0.15);">
-                    <i data-lucide="calendar-check" style="color: white; width: 24px; height: 24px;"></i>
-                </div>
-                <div class="kpi-content">
-                    <div class="kpi-label" style="color: rgba(255,255,255,0.9);">Días Estimado (Promedio)</div>
-                    <div class="kpi-value kpi-value-clickable" onclick="showKPITickets('diasEstimado')" style="color: white;" title="Click para ver tickets"><span>${kpis.diasEstimadoPromedio}</span> <span class="kpi-unit" style="color: rgba(255,255,255,0.8);">días</span></div>
-                    <div class="kpi-badge" style="background: rgba(255,255,255,0.2); color: white;">${kpis.ticketsConEstimacion} tickets</div>
-                </div>
-            </div>
-            
-            <div class="kpi-card-modern kpi-highlight" style="background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);">
-                <div class="kpi-icon-wrapper" style="background: rgba(255, 255, 255, 0.15);">
-                    <i data-lucide="bar-chart-2" style="color: white; width: 24px; height: 24px;"></i>
-                </div>
-                <div class="kpi-content">
-                    <div class="kpi-label" style="color: rgba(255,255,255,0.9);">Días Real (Promedio)</div>
-                    <div class="kpi-value kpi-value-clickable" onclick="showKPITickets('diasReal')" style="color: white;" title="Click para ver tickets"><span>${kpis.diasRealPromedio}</span> <span class="kpi-unit" style="color: rgba(255,255,255,0.8);">días</span></div>
-                    <div class="kpi-badge" style="background: rgba(255,255,255,0.2); color: white;">${kpis.desviacionPromedio > 0 ? '+' : ''}${kpis.desviacionPromedio} días desviación</div>
-                </div>
-            </div>
+
         </div>
         
-        <h3><i data-lucide="flag" style="display: inline-block; width: 24px; height: 24px; margin-right: 8px; color: #6C5CE7; vertical-align: middle;"></i>Distribución por Prioridad</h3>
+        <div style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+            <div style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; display: flex; align-items: center; gap: 12px;">
+                <svg style="width: 20px; height: 20px; color: #6C5CE7; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"/></svg>
+                <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">KPIs por Prioridad</h2>
+            </div>
+            <div style="padding: 16px; overflow-x: auto;">
         <table>
             <thead>
                 <tr>
@@ -685,10 +620,19 @@ function renderDashboardKPIs(kpis, tickets) {
                 }).join('')}
             </tbody>
         </table>
-        
-        <h3 style="margin-top: 40px;"><i data-lucide="bar-chart-3" style="display: inline-block; width: 24px; height: 24px; margin-right: 8px; color: #6C5CE7; vertical-align: middle;"></i>Distribución por Tipo de Actividad</h3>
+            </div>
+        </div>
+
+        <div style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+            <div style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; display: flex; align-items: center; gap: 12px;">
+                <svg style="width: 20px; height: 20px; color: #6C5CE7; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">KPIs por Actividad</h2>
+            </div>
+            <div style="padding: 16px;">
         <div class="tipo-cards-grid">
             ${renderTipoCards(tickets)}
+        </div>
+            </div>
         </div>
     `;
     
@@ -771,22 +715,7 @@ function renderTipoCards(tickets) {
                         </div>
                     </div>
                     
-                    <div class="tipo-metrics">
-                        <div class="metric-box">
-                            <div class="metric-label">
-                                <i data-lucide="clock" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle; color: #666;"></i>
-                                Días Real
-                            </div>
-                            <div class="metric-value clickable-number" onclick="showTipoTickets('${tipo.nombre}', 'diasReal'); return false;" style="color: ${tipo.color}; cursor: pointer;" title="Click para ver tickets con días reales">${diasPromedio}</div>
-                        </div>
-                        <div class="metric-box">
-                            <div class="metric-label">
-                                <i data-lucide="calendar-days" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle; color: #666;"></i>
-                                Estimado
-                            </div>
-                            <div class="metric-value clickable-number" onclick="showTipoTickets('${tipo.nombre}', 'estimado'); return false;" style="color: ${tipo.color}; cursor: pointer;" title="Click para ver tickets con estimación">${estimadoPromedio}</div>
-                        </div>
-                    </div>
+
                 </div>
             </div>
         `;
@@ -2039,6 +1968,10 @@ function showView(section, viewName) {
             renderIncidentes();
         } else if (viewName === 'dashboard') {
             updateDashboard();
+        } else if (viewName === 'kpis-avanzados') {
+            if (typeof actualizarKPIsAvanzados === 'function') {
+                actualizarKPIsAvanzados();
+            }
         }
     }
 }
