@@ -804,7 +804,7 @@ function renderEvolucion() {
     
     tbody.innerHTML = rows.map(r => `
         <tr ${r.sprint == 34 ? 'style="background-color: #e3f2fd; font-weight: 600;"' : ''}>
-            <td><strong>Sprint ${r.sprint}${r.sprint == 34 ? ' (Actual)' : ''}</strong></td>
+            <td><strong>Sprint ${r.sprint}</strong></td>
             <td><a href="#" class="clickable-number" onclick="showTicketDetails(${r.sprint}, 'nuevos'); return false;">${r.nuevos}</a></td>
             <td><a href="#" class="clickable-number" onclick="showTicketDetails(${r.sprint}, 'resueltos'); return false;">${r.resueltos}</a></td>
             <td><a href="#" class="clickable-number" onclick="showTicketDetails(${r.sprint}, 'pendientes'); return false;">${r.pendientes}</a></td>
