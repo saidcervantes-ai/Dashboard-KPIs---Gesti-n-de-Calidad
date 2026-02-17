@@ -495,11 +495,11 @@ function calcularAnalisisErrores(tickets) {
             
             const total = ticketsReales.length;
             const funcionalidades = tasks.length + stories.length;
-            const ratio = funcionalidades > 0 
-                ? (bugs.length / funcionalidades).toFixed(2)
+            const porcentajeBugs = total > 0 
+                ? ((bugs.length / total) * 100).toFixed(1)
                 : 0;
             
-            console.log(`[Sprint ${sprint}] Total: ${total}, Bugs: ${bugs.length}, Tasks: ${tasks.length}, Stories: ${stories.length}, Otros: ${otros.length}`);
+            console.log(`[Sprint ${sprint}] Total: ${total}, Bugs: ${bugs.length}, Tasks: ${tasks.length}, Stories: ${stories.length}, Otros: ${otros.length}, % Bugs: ${porcentajeBugs}%`);
             
             return {
                 sprint: sprint, // "Sprint 35"
@@ -524,7 +524,7 @@ function calcularAnalisisErrores(tickets) {
                     percent: ((otros.length / total) * 100).toFixed(1)
                 },
                 total,
-                ratio: parseFloat(ratio)
+                bugPercentage: parseFloat(porcentajeBugs)
             };
         });
     
@@ -888,42 +888,42 @@ function renderTicketsPorEstado(tickets, categoria, cssClass, estados) {
     const uniqueId = `tickets-${cssClass}`;
     
     return `
-        <div class="tickets-list-container ${cssClass}">
-            <div class="collapsible-header" onclick="toggleSection('${uniqueId}')" style="cursor: pointer; user-select: none;">
-                <h3 style="margin: 0; display: inline-flex; align-items: center;">
-                    <span class="collapse-icon" id="icon-${uniqueId}" style="margin-right: 8px;">▼</span>
-                    ${emojis[categoria]} Tickets ${categoria} (${criterios[categoria]}) - Total: ${tickets.length}
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+            <div class="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors duration-150" onclick="toggleSection('${uniqueId}')">
+                <h3 class="text-base font-semibold text-gray-800 flex items-center gap-2 m-0">
+                    <span class="collapse-icon text-sm transition-transform duration-200" id="icon-${uniqueId}">▼</span>
+                    ${emojis[categoria]} Tickets ${categoria}
                 </h3>
             </div>
-            <div id="${uniqueId}" class="collapsible-content" style="overflow: hidden;">
-                <div style="overflow-x: auto; margin-top: 12px;">
-                    <table class="kpi-table-modern">
+            <div id="${uniqueId}" class="overflow-hidden">
+                <div class="overflow-x-auto p-5 pt-0">
+                    <table class="w-full border-collapse">
                         <thead>
-                            <tr>
-                                <th style="min-width: 80px;">Ticket</th>
-                                <th style="min-width: 120px;">Asignado</th>
-                                <th style="min-width: 60px; text-align: center;">Total</th>
-                                ${estados.map(estado => `<th style="min-width: 80px; text-align: center;">${estado.replace('CODE REVIEW', 'Code Review').replace('IN TEST DEV', 'Test in Dev')}</th>`).join('')}
-                                <th style="min-width: 100px;">Estado Actual</th>
+                            <tr class="bg-gray-50 border-b border-gray-200">
+                                <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">Ticket</th>
+                                <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">Asignado</th>
+                                <th class="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">Total</th>
+                                ${estados.map(estado => `<th class="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">${estado.replace('CODE REVIEW', 'Code Review').replace('IN TEST DEV', 'Test in Dev')}</th>`).join('')}
+                                <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">Estado Actual</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody class="divide-y divide-gray-100">
                             ${tickets.map(t => {
                                 const totalDias = t.diasEnTracking || 0;
-                                const rowClass = totalDias >= 15 ? 'ticket-row-critical' : totalDias >= 8 ? 'ticket-row-warning' : '';
+                                const rowClass = totalDias >= 15 ? 'bg-red-50 hover:bg-red-100' : totalDias >= 8 ? 'bg-yellow-50 hover:bg-yellow-100' : 'hover:bg-gray-50';
                                 
                                 return `
-                                    <tr class="${rowClass}">
-                                        <td><strong><a href="#" onclick="mostrarDetalleTicket('${t.clave}', event); return false;" style="color: #1976d2; text-decoration: none; cursor: pointer;">${t.clave}</a></strong></td>
-                                        <td>${t.asignado || 'Sin asignar'}</td>
-                                        <td style="text-align: center;"><strong>${totalDias}</strong></td>
+                                    <tr class="${rowClass} transition-colors duration-150">
+                                        <td class="py-3 px-4 font-semibold"><a href="#" onclick="mostrarDetalleTicket('${t.clave}', event); return false;" class="text-blue-600 hover:text-blue-800 no-underline cursor-pointer">${t.clave}</a></td>
+                                        <td class="py-3 px-4 text-gray-700">${t.asignado || 'Sin asignar'}</td>
+                                        <td class="py-3 px-4 text-center font-bold text-gray-900">${totalDias}</td>
                                         ${estados.map(estado => {
                                             const dias = t.diasPorEstado[estado] || 0;
                                             const diasRedondeados = Math.round(dias);
-                                            const cellClass = diasRedondeados > 0 ? 'cell-with-data' : 'cell-empty';
-                                            return `<td style="text-align: center;" class="${cellClass}">${diasRedondeados > 0 ? diasRedondeados : '-'}</td>`;
+                                            const cellClass = diasRedondeados > 0 ? 'bg-green-100 font-semibold text-green-800' : 'bg-gray-50 text-gray-400';
+                                            return `<td class="py-3 px-4 text-center ${cellClass}">${diasRedondeados > 0 ? diasRedondeados : '-'}</td>`;
                                         }).join('')}
-                                        <td><span class="estado-badge">${t.estado || t.estadoNormalizado}</span></td>
+                                        <td class="py-3 px-4"><span class="inline-block px-3 py-1 text-xs font-medium text-blue-800 bg-blue-100 rounded">${t.estado || t.estadoNormalizado}</span></td>
                                     </tr>
                                 `;
                             }).join('')}
@@ -966,7 +966,6 @@ function renderAnalisisErroresSection(analisis) {
                         Análisis de Errores vs Funcionalidad
                     </h2>
                 </div>
-                <span class="badge-trend">${analisis.tendencia}</span>
             </div>
             
             <div class="section-content-avanzado" id="errores-content">
@@ -1018,9 +1017,6 @@ function renderErroresSprintChart(sprints) {
                             </div>
                         ` : ''}
                     </div>
-                    <div class="stacked-bar-ratio ${sprint.ratio > 1 ? 'ratio-high' : sprint.ratio > 0.5 ? 'ratio-medium' : 'ratio-low'}">
-                        Ratio: ${sprint.ratio}
-                    </div>
                 </div>
             `}).join('')}
         </div>
@@ -1044,7 +1040,7 @@ function renderErroresDetalleTable(sprints) {
                     <th>Tasks</th>
                     <th>Historias de Usuario</th>
                     <th>Total</th>
-                    <th>Ratio Bug/Feature</th>
+                    <th>% Bugs</th>
                 </tr>
             </thead>
             <tbody>
@@ -1068,8 +1064,8 @@ function renderErroresDetalleTable(sprints) {
                                 </span> ${sprint.stories.percent}%
                             </td>
                             <td><strong>${sprint.total}</strong></td>
-                            <td class="${sprint.ratio > 1 ? 'text-danger' : sprint.ratio > 0.5 ? 'text-warning' : 'text-success'}">
-                                <strong>${sprint.ratio}</strong>
+                            <td class="${sprint.bugPercentage > 25 ? 'text-danger' : sprint.bugPercentage > 15 ? 'text-warning' : 'text-success'}">
+                                <strong>${sprint.bugPercentage}%</strong>
                             </td>
                         </tr>
                     `;
