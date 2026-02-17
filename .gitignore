@@ -9,5 +9,10 @@ Thumbs.db
 *.bak
 *.swp
 
+# Configuración con credenciales de Jira (¡IMPORTANTE!)
+jira_config.json
+*_credentials.json
+*_secrets.*
+
 # Si quieres proteger los datos reales, descomenta la siguiente línea:
 # dashboard_data.js

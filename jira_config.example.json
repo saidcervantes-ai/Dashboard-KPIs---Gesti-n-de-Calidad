@@ -1,0 +1,8 @@
+{
+  "jiraUrl": "https://tu-empresa.atlassian.net",
+  "email": "tu-email@empresa.com",
+  "apiToken": "TU_TOKEN_DE_API_AQUI",
+  "projectKey": "IMS",
+  "jql": "project = IMS AND Sprint in ('Sprint 30', 'Sprint 31', 'Sprint 32', 'Sprint 33', 'Sprint 34', 'Sprint 35', 'Sprint 36') ORDER BY created DESC",
+  "maxResults": 1000
+}
