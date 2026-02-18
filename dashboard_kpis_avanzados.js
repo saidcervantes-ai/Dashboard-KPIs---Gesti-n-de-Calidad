@@ -813,6 +813,14 @@ function renderKPIsAvanzados(kpis) {
             </h1>
             <p class="subtitle">Métricas avanzadas para análisis profundo de gestión de calidad</p>
         </div>
+        <div class="sections-handle-wrap">
+            <button class="btn-sections-handle" id="btn-toggle-all-sections" onclick="toggleAllSections()" title="Colapsar todas las secciones">
+                <svg id="btn-toggle-all-icon" class="handle-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="7 10 12 5 17 10"></polyline>
+                    <polyline points="7 15 12 20 17 15"></polyline>
+                </svg>
+            </button>
+        </div>
         
         ${renderLeadTimeSection(kpis.leadTime, kpis.sprintActual)}
         ${renderCycleTimeSection(kpis.cycleTime)}
@@ -1336,6 +1344,56 @@ function toggleSection(contentId) {
     }
 }
 
+const AVANZADO_SECTIONS = ['leadtime-content', 'cycletime-content', 'rework-content', 'edad-content', 'errores-content'];
+
+function toggleAllSections() {
+    const btn = document.getElementById('btn-toggle-all-sections');
+    const icon = document.getElementById('btn-toggle-all-icon');
+    const anyVisible = AVANZADO_SECTIONS.some(id => {
+        const el = document.getElementById(id);
+        return el && el.style.display !== 'none';
+    });
+    AVANZADO_SECTIONS.forEach(id => {
+        const content = document.getElementById(id);
+        const sectionIcon = document.getElementById('icon-' + id);
+        if (anyVisible) {
+            if (content) content.style.display = 'none';
+            if (sectionIcon) sectionIcon.textContent = '▶';
+        } else {
+            if (content) content.style.display = 'block';
+            if (sectionIcon) sectionIcon.textContent = '▼';
+        }
+    });
+    if (icon) {
+        // Rotado = expandir (flechas apuntan afuera), normal = colapsar (flechas apuntan adentro)
+        icon.style.transform = anyVisible ? 'rotate(180deg)' : '';
+        btn.title = anyVisible ? 'Expandir todas las secciones' : 'Colapsar todas las secciones';
+    }
+}
+
+window.toggleAllSections = toggleAllSections;
+
+function expandAllSections() {
+    AVANZADO_SECTIONS.forEach(id => {
+        const content = document.getElementById(id);
+        const icon = document.getElementById('icon-' + id);
+        if (content) content.style.display = 'block';
+        if (icon) icon.textContent = '▼';
+    });
+}
+
+function collapseAllSections() {
+    AVANZADO_SECTIONS.forEach(id => {
+        const content = document.getElementById(id);
+        const icon = document.getElementById('icon-' + id);
+        if (content) content.style.display = 'none';
+        if (icon) icon.textContent = '▶';
+    });
+}
+
+window.expandAllSections = expandAllSections;
+window.collapseAllSections = collapseAllSections;
+
 /**
  * Muestra los tickets de un rango específico de Lead Time en un modal popup
  */
@@ -1397,14 +1455,20 @@ function mostrarTicketsRango(label, min, max, sprintActual) {
     
     // Crear modal
     const modalHTML = `
-        <div class="modal-overlay" id="tickets-modal" onclick="window.cerrarModalTickets(event)">
+        <div class="modal-overlay modal-active" id="tickets-modal" onclick="window.cerrarModalTickets(event)">
             <div class="modal-content" onclick="event.stopPropagation()">
                 <div class="modal-header">
-                    <h2>📊 Tickets en rango: ${label}</h2>
+                    <h2>
+                        <span class="modal-title-icon">&#x23F1;</span>
+                        Distribución Lead Time &mdash; ${label}
+                    </h2>
                     <button class="modal-close" onclick="window.cerrarModalTickets()">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <p class="modal-info"><strong>${ticketsEnRango.length}</strong> tickets encontrados</p>
+                    <p style="margin:0 0 14px 0;padding:14px 0 14px 0;border-bottom:1px solid #F3F4F6;font-size:13px;">
+                        <span style="color:#6B7280;">Total de tickets:</span>
+                        <strong style="color:#1a3a6b;font-size:15px;margin-left:8px;background:#DBEAFE;border:1.5px solid #93C5FD;padding:2px 12px;border-radius:20px;font-weight:700;">${ticketsEnRango.length}</strong>
+                    </p>
                     <div class="modal-table-wrapper">
                         <table class="kpi-table-modern">
                             <thead>
@@ -1420,12 +1484,12 @@ function mostrarTicketsRango(label, min, max, sprintActual) {
                             <tbody>
                                 ${ticketsEnRango.map(t => `
                                     <tr>
-                                        <td><strong>${t.clave}</strong></td>
-                                        <td>${truncateText(t.resumen, 60)}</td>
-                                        <td>${t.tipoIncidencia || t.tipo || '-'}</td>
+                                        <td><strong style="color:#1a3a6b;font-family:monospace;font-size:13px">${t.clave}</strong></td>
+                                        <td style="max-width:320px;">${truncateText(t.resumen, 65)}</td>
+                                        <td><span style="color:#6B7280;font-size:13px">${t.tipoIncidencia || t.tipo || '-'}</span></td>
                                         <td><span class="priority-badge priority-${(t.prioridad || 'medium').toLowerCase()}">${t.prioridad || '-'}</span></td>
-                                        <td>Sprint ${t.sprint}</td>
-                                        <td class="text-center"><strong>${t.leadTimeDias} días</strong></td>
+                                        <td><span style="color:#6B7280;font-size:13px">Sprint ${t.sprint}</span></td>
+                                        <td><strong style="color:#1a3a6b">${t.leadTimeDias} días</strong></td>
                                     </tr>
                                 `).join('')}
                             </tbody>
@@ -1516,13 +1580,20 @@ function mostrarTicketsPorTipo(sprintNum, tipo) {
     
     // Crear modal con tabla de tickets
     const modalHTML = `
-        <div class="modal-overlay" id="tickets-tipo-modal" onclick="cerrarModalTicketsTipo(event)">
+        <div class="modal-overlay modal-active" id="tickets-tipo-modal" onclick="cerrarModalTicketsTipo(event)">
             <div class="modal-content" onclick="event.stopPropagation()">
                 <div class="modal-header">
-                    <h2>${titulo} - Sprint ${sprintNum} (${tickets.length} tickets)</h2>
+                    <h2>
+                        <span class="modal-title-icon">&#x1F4CB;</span>
+                        ${titulo} &mdash; Sprint ${sprintNum}
+                    </h2>
                     <button class="modal-close" onclick="cerrarModalTicketsTipo()">&times;</button>
                 </div>
                 <div class="modal-body">
+                    <p style="margin:0 0 14px 0;padding:14px 0 14px 0;border-bottom:1px solid #F3F4F6;font-size:13px;">
+                        <span style="color:#6B7280;">Total de tickets:</span>
+                        <strong style="color:#1a3a6b;font-size:15px;margin-left:8px;background:#DBEAFE;border:1.5px solid #93C5FD;padding:2px 12px;border-radius:20px;font-weight:700;">${tickets.length}</strong>
+                    </p>
                     <div class="modal-table-wrapper">
                         <table class="kpi-table-modern">
                             <thead>
@@ -1538,12 +1609,12 @@ function mostrarTicketsPorTipo(sprintNum, tipo) {
                                 ${tickets.map(t => `
                                     <tr>
                                         <td>
-                                            <strong class="ticket-link" onclick="mostrarDetalleTicket('${t.clave}', event)" style="cursor: pointer; color: ${color};">
+                                            <strong class="ticket-link" onclick="mostrarDetalleTicket('${t.clave}', event)" style="cursor:pointer;color:#1a3a6b;font-family:monospace;font-size:13px">
                                                 ${t.clave}
                                             </strong>
                                         </td>
-                                        <td>${t.resumen || t.titulo || '-'}</td>
-                                        <td>${t.asignado || 'Sin asignar'}</td>
+                                        <td style="max-width:300px">${t.resumen || t.titulo || '-'}</td>
+                                        <td><span style="color:#6B7280;font-size:13px">${t.asignado || 'Sin asignar'}</span></td>
                                         <td><span class="estado-badge">${t.estadoNormalizado || t.estado || '-'}</span></td>
                                         <td><span class="priority-badge priority-${(t.prioridad || 'medium').toLowerCase()}">${t.prioridad || '-'}</span></td>
                                     </tr>
@@ -1608,26 +1679,30 @@ function mostrarDetalleTicket(clave, event) {
     const resumen = ticket.resumen || ticket.titulo || 'Sin título';
     
     // Crear modal
+    const prioridadClass = `priority-${(ticket.prioridad || 'medium').toLowerCase()}`;
     const modalHTML = `
-        <div id="detalle-ticket-modal" class="modal-overlay" onclick="cerrarDetalleTicket(event)">
+        <div id="detalle-ticket-modal" class="modal-overlay modal-active" onclick="cerrarDetalleTicket(event)">
             <div class="modal-content-detalle" onclick="event.stopPropagation()">
                 <div class="modal-header-detalle">
-                    <h2>${clave}</h2>
-                    <button onclick="cerrarDetalleTicket()" class="modal-close-btn">×</button>
+                    <h2>
+                        <span class="modal-title-icon">&#x1F3AB;</span>
+                        ${clave}
+                    </h2>
+                    <button onclick="cerrarDetalleTicket()" class="modal-close-btn">&times;</button>
                 </div>
                 <div class="modal-body-detalle">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">
+                        <span class="priority-badge ${prioridadClass}">${ticket.prioridad || 'N/A'}</span>
+                        <span class="estado-badge">${ticket.estado || ticket.estadoNormalizado || '-'}</span>
+                        ${ticket.asignado ? `<span style="background:#F3F4F6;color:#374151;border:1px solid #E5E7EB;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">&#128100; ${ticket.asignado}</span>` : ''}
+                    </div>
                     <div class="ticket-field">
                         <label><strong>Resumen:</strong></label>
                         <p>${resumen}</p>
                     </div>
                     <div class="ticket-field">
-                        <label><strong>Descripción:</strong></label>
+                        <label><strong>Descripci\u00f3n:</strong></label>
                         <p>${descripcion}</p>
-                    </div>
-                    <div class="ticket-meta">
-                        <span><strong>Asignado:</strong> ${ticket.asignado || 'Sin asignar'}</span>
-                        <span><strong>Estado:</strong> ${ticket.estado || ticket.estadoNormalizado}</span>
-                        <span><strong>Prioridad:</strong> ${ticket.prioridad || 'N/A'}</span>
                     </div>
                 </div>
             </div>

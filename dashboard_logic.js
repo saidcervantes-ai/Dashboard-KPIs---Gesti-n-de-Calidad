@@ -494,15 +494,16 @@ function showTicketModal(titulo, ticketsFiltrados) {
                 <button class="modal-close" onclick="closeTicketModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="modal-summary">
-                    <span class="summary-label">Total de actividades:</span>
-                    <span class="summary-value">${ticketsFiltrados.length}</span>
-                </div>
+                <p style="margin:0 0 14px 0;padding:14px 0 14px 0;border-bottom:1px solid #F3F4F6;font-size:13px;">
+                    <span style="color:#6B7280;">Total de actividades:</span>
+                    <strong style="color:#1a3a6b;font-size:15px;margin-left:8px;background:#DBEAFE;border:1.5px solid #93C5FD;padding:2px 12px;border-radius:20px;font-weight:700;">${ticketsFiltrados.length}</strong>
+                </p>
                 ${tablaHTML}
             </div>
         </div>
     `;
     
+    modal.classList.add('modal-active');
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 }
@@ -2075,15 +2076,16 @@ function showTicketDetails(sprint, tipo) {
                 <button class="modal-close" onclick="closeTicketModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="modal-summary">
-                    <span class="summary-label">Total de incidentes:</span>
-                    <span class="summary-value">${ticketsFiltrados.length}</span>
-                </div>
+                <p style="margin:0 0 14px 0;padding:14px 0 14px 0;border-bottom:1px solid #F3F4F6;font-size:13px;">
+                    <span style="color:#6B7280;">Total de incidentes:</span>
+                    <strong style="color:#1a3a6b;font-size:15px;margin-left:8px;background:#DBEAFE;border:1.5px solid #93C5FD;padding:2px 12px;border-radius:20px;font-weight:700;">${ticketsFiltrados.length}</strong>
+                </p>
                 ${tablaHTML}
             </div>
         </div>
     `;
     
+    modal.classList.add('modal-active');
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 }
@@ -2091,6 +2093,7 @@ function showTicketDetails(sprint, tipo) {
 function closeTicketModal() {
     const modal = document.getElementById('ticket-modal');
     if (modal) {
+        modal.classList.remove('modal-active');
         modal.style.display = 'none';
         document.body.style.overflow = 'auto';
     }
@@ -2190,15 +2193,16 @@ function showTicketDetailsByPriority(prioridad, estado, tipoFiltro, valorFiltro)
                 <button class="modal-close" onclick="closeTicketModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="modal-summary">
-                    <span class="summary-label">Total de incidentes:</span>
-                    <span class="summary-value">${ticketsFiltrados.length}</span>
-                </div>
+                <p style="margin:0 0 14px 0;padding:14px 0 14px 0;border-bottom:1px solid #F3F4F6;font-size:13px;">
+                    <span style="color:#6B7280;">Total de incidentes:</span>
+                    <strong style="color:#1a3a6b;font-size:15px;margin-left:8px;background:#DBEAFE;border:1.5px solid #93C5FD;padding:2px 12px;border-radius:20px;font-weight:700;">${ticketsFiltrados.length}</strong>
+                </p>
                 ${tablaHTML}
             </div>
         </div>
     `;
     
+    modal.classList.add('modal-active');
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 }

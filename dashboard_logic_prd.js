@@ -1048,6 +1048,7 @@ function showBugDetailsPRD(mes, tipo) {
         </div>
     `;
     
+    modal.classList.add('modal-active');
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 }
@@ -1130,6 +1131,7 @@ function showBugDetailsByPriorityPRD(prioridad, estado, mes) {
         </div>
     `;
     
+    modal.classList.add('modal-active');
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 }
