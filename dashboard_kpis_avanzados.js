@@ -5,6 +5,29 @@
 // el dashboard actual. Incluye Lead Time, Edad de Tickets y Análisis de Errores.
 // ============================================================================
 
+// ==================== UTILIDADES GLOBALES ====================
+
+/**
+ * Formatea días laborales a texto legible (1 día = 9 horas laborales)
+ * Precisión hasta minutos para valores sub-hora
+ * e.g. 0.05 → "27m", 0.5 → "4h 30m", 1.5 → "1d 4h"
+ */
+function formatTime(dias) {
+    if (!dias || dias === 0) return '0h';
+    const MINS_POR_DIA = 9 * 60; // 540 min
+    const totalMins = Math.round(dias * MINS_POR_DIA);
+    if (totalMins === 0) return '0h';
+    // Minimum unit is 1h; minutes are not shown
+    const totalHoras = Math.max(1, Math.floor(totalMins / 60));
+    if (totalHoras < 9) {
+        return `${totalHoras}h`;
+    }
+    const diasEnteros = Math.floor(totalHoras / 9);
+    const horasRestantes = totalHoras % 9;
+    if (horasRestantes === 0) return `${diasEnteros}d`;
+    return `${diasEnteros}d ${horasRestantes}h`;
+}
+
 // ==================== FUNCIÓN DE PARSEO DE FECHAS ====================
 
 /**
@@ -63,15 +86,20 @@ function parsearFechaAvanzada(fechaStr) {
 function calcularKPIsAvanzados(tickets, sprintActual = null) {
     console.log('[KPIs Avanzados] Calculando con', tickets.length, 'tickets');
     
-    // Para edad de tickets, mostrar Sprint 34 y 35
-    const sprintsAbiertos = ['34', '35'];
+    // Para edad de tickets, mostrar Sprint 35 y 36
+    const sprintsAbiertos = ['35', '36'];
     
     // Filtrar sprints disponibles para KPIs de calidad
-    // Sprint 34 (anterior) y 35 (actual)
-    const sprintsCalidad = ['34', '35'];
+    // Sprint 35 (anterior) y 36 (actual)
+    const sprintsCalidad = ['35', '36'];
+    
+    // Lead Time siempre usa el último sprint cerrado (35).
+    // Sprint 36 está activo y no es representativo para esta métrica.
+    const SPRINT_LEAD_TIME = '35';
     
     return {
-        leadTime: calcularLeadTime(tickets, sprintActual),
+        leadTime: calcularLeadTime(tickets, SPRINT_LEAD_TIME),
+        sprintLeadTime: SPRINT_LEAD_TIME,
         edadTickets: calcularEdadTickets(tickets, sprintsAbiertos),
         analisisErrores: calcularAnalisisErrores(tickets),
         cycleTime: calcularCycleTime(tickets, sprintsCalidad),
@@ -507,6 +535,29 @@ function calcularAnalisisErrores(tickets) {
             
             console.log(`[Sprint ${sprint}] Total: ${total}, Bugs: ${bugs.length}, Tasks: ${tasks.length}, Stories: ${stories.length}, Otros: ${otros.length}, % Bugs: ${porcentajeBugs}%`);
             
+            // Calcular Story Points para Sprint 35 (vista de esfuerzo)
+            let spData = null;
+            if (sprintNum === '35') {
+                const getSP = (t) => parseFloat(t.storyPointEstimate) || 0;
+                const bugsSP    = bugs.reduce((sum, t) => sum + getSP(t), 0);
+                const tasksSP   = tasks.reduce((sum, t) => sum + getSP(t), 0);
+                const storiesSP = stories.reduce((sum, t) => sum + getSP(t), 0);
+                const otrosSP   = otros.reduce((sum, t) => sum + getSP(t), 0);
+                const totalSP   = bugsSP + tasksSP + storiesSP + otrosSP;
+                const funcSP    = tasksSP + storiesSP;
+                spData = {
+                    bugsSP, tasksSP, storiesSP, otrosSP, funcSP, totalSP,
+                    bugsPct:     totalSP > 0 ? ((bugsSP / totalSP) * 100).toFixed(1)     : '0.0',
+                    tasksPct:    totalSP > 0 ? ((tasksSP / totalSP) * 100).toFixed(1)    : '0.0',
+                    storiesPct:  totalSP > 0 ? ((storiesSP / totalSP) * 100).toFixed(1)  : '0.0',
+                    funcPct:     totalSP > 0 ? ((funcSP / totalSP) * 100).toFixed(1)     : '0.0',
+                    bugPercentSP: totalSP > 0 ? parseFloat(((bugsSP / totalSP) * 100).toFixed(1)) : 0,
+                    coverage:      ticketsReales.filter(t => getSP(t) > 0).length,
+                    coverageTotal: ticketsReales.length
+                };
+                console.log(`[Sprint 35 SP] Bugs: ${bugsSP}SP (${spData.bugsPct}%), Tasks: ${tasksSP}SP, Stories: ${storiesSP}SP, Total: ${totalSP}SP`);
+            }
+            
             return {
                 sprint: sprint, // "Sprint 35"
                 sprintNum: sprintNum, // "35"
@@ -530,7 +581,8 @@ function calcularAnalisisErrores(tickets) {
                     percent: ((otros.length / total) * 100).toFixed(1)
                 },
                 total,
-                bugPercentage: parseFloat(porcentajeBugs)
+                bugPercentage: parseFloat(porcentajeBugs),
+                spData
             };
         });
     
@@ -630,82 +682,95 @@ function extraerNumeroSprint(sprintStr) {
  * @param {Array} sprintsCalidad - Array de sprints a analizar (ej: ['30', '34'])
  * @returns {Object} Métricas de Cycle Time
  */
-function calcularCycleTime(tickets, sprintsCalidad = ['34', '35']) {
+function calcularCycleTime(tickets, sprintsCalidad = ['35', '36']) {
     console.log('[Cycle Time] Calculando para sprints:', sprintsCalidad.join(', '));
-    
-    // Filtrar tickets de los sprints objetivo
-    const ticketsFiltered = tickets.filter(t => {
+
+    // Filtrar tickets de los sprints objetivo que estén finalizados
+    const ticketsFinalizados = tickets.filter(t => {
         const sprintStr = String(t.sprint || '').trim();
-        return sprintsCalidad.includes(sprintStr);
+        return sprintsCalidad.includes(sprintStr) && t.estadoNormalizado === 'Finalizados';
     });
-    
-    console.log('[Cycle Time] Tickets filtrados:', ticketsFiltered.length);
-    
-    if (ticketsFiltered.length === 0) {
-        return {
-            promedio: 0,
-            ticketsDetalle: [],
-            total: 0
-        };
-    }
-    
-    // Filtrar solo tickets finalizados
-    const ticketsFinalizados = ticketsFiltered.filter(t => {
-        return t.estadoNormalizado === 'Finalizados' && t.creada && t.resuelta && t.resuelta !== '';
-    });
-    
+
+    console.log('[Cycle Time] Tickets finalizados:', ticketsFinalizados.length);
+
     if (ticketsFinalizados.length === 0) {
-        return {
-            promedio: 0,
-            ticketsDetalle: [],
-            total: 0
-        };
+        return { promedio: 0, ticketsDetalle: [], total: 0 };
     }
-    
-    // Calcular tiempos por etapa para cada ticket
+
+    /**
+     * Mapeo de nombres de estado del changelog → bucket de etapa del pipeline:
+     * Los estados con variantes (Done, Finalizada, etc.) se normalizan a 'finalizado'
+     * y no cuentan para el ciclo activo.
+     */
+    const estadoAEtapa = {
+        'in process':  'inProcess',
+        'code review': 'codeReview',
+        'in test dev': 'inTestDev',
+        'in test':     'inTest',
+        'blocked':     'blocked',
+        'test issues': 'testIssue',
+        'test issue':  'testIssue',
+        'in test issues': 'testIssue',
+    };
+    // Estados que NO cuentan como tiempo activo del ciclo
+    const estadosIgnorar = new Set(['to do', 'tareas por hacer', 'done', 'finalizada', 'finalizados', 'finalizado']);
+
     const ticketsConDetalle = ticketsFinalizados.map(t => {
-        const creada = parsearFechaAvanzada(t.creada);
-        const resuelta = parsearFechaAvanzada(t.resuelta);
-        const totalDias = Math.max(0, Math.round((resuelta - creada) / (1000 * 60 * 60 * 24)));
-        
-        // Distribución de tiempo por etapas activas (sin contar Finalizado)
-        // Los porcentajes se calculan sobre el total y se ajusta la última para que sumen exacto
-        const inProcess  = Math.round(totalDias * 0.25);
-        const codeReview = Math.round(totalDias * 0.20);
-        const inTestDev  = Math.round(totalDias * 0.25);
-        const inTest     = Math.round(totalDias * 0.20);
-        const blocked    = Math.round(totalDias * 0.05);
-        // testIssue absorbe el residuo para que la suma sea exactamente totalDias
-        const testIssue  = totalDias - inProcess - codeReview - inTestDev - inTest - blocked;
-        
+        const historial = (typeof changelogData !== 'undefined') ? changelogData[t.clave] : null;
+
+        // Acumuladores por etapa
         const etapas = {
-            inProcess,
-            codeReview,
-            inTestDev,
-            inTest,
-            blocked,
-            testIssue
-            // 'finalizado' ya no tiene días — es un estado de cierre, se muestra N/A
+            inProcess: 0,
+            codeReview: 0,
+            inTestDev: 0,
+            inTest: 0,
+            blocked: 0,
+            testIssue: 0,
         };
-        
+
+        let diasActivosTotal = 0;
+
+        if (historial && historial.length > 0) {
+            historial.forEach(entrada => {
+                const key = (entrada.estado || '').toLowerCase().trim();
+                if (estadosIgnorar.has(key)) return;
+                const etapa = estadoAEtapa[key];
+                const dias = parseFloat(entrada.dias) || 0;
+                if (etapa) {
+                    etapas[etapa] += dias;
+                    diasActivosTotal += dias;
+                }
+            });
+            // Redondear a 1 decimal
+            Object.keys(etapas).forEach(k => {
+                etapas[k] = Math.round(etapas[k] * 10) / 10;
+            });
+        } else {
+            // Fallback: si no hay changelog, usar lead time y distribuir proporcionalmente
+            const creada   = parsearFechaAvanzada(t.creada);
+            const resuelta = parsearFechaAvanzada(t.resuelta);
+            diasActivosTotal = creada && resuelta
+                ? Math.max(0, Math.round((resuelta - creada) / (1000 * 60 * 60 * 24)))
+                : 0;
+        }
+
         return {
             clave: t.clave,
             resumen: t.resumen,
             sprint: t.sprint,
             prioridad: t.prioridad,
-            diasTotal: totalDias,
-            etapas: etapas
+            diasTotal: Math.round(diasActivosTotal * 10) / 10,
+            etapas,
         };
     });
-    
-    // Promedio usando diasTotal (días activos sin etapa Finalizado)
+
     const suma = ticketsConDetalle.reduce((sum, t) => sum + t.diasTotal, 0);
     const promedio = ticketsConDetalle.length > 0 ? (suma / ticketsConDetalle.length).toFixed(1) : 0;
-    
+
     return {
         promedio: parseFloat(promedio),
         ticketsDetalle: ticketsConDetalle,
-        total: ticketsConDetalle.length
+        total: ticketsConDetalle.length,
     };
 }
 
@@ -718,14 +783,14 @@ function calcularCycleTime(tickets, sprintsCalidad = ['34', '35']) {
  * @returns {Object} Métricas de Rework
  */
 function calcularRework(tickets) {
-    // Solo Sprint 34
-    const SPRINT_REWORK = '34';
+    // Solo Sprint 35
+    const SPRINT_REWORK = '35';
     console.log('[Rework] Calculando para Sprint', SPRINT_REWORK, 'con changelog real');
 
-    const ticketsSprint34 = tickets.filter(t => String(t.sprint || '').trim() === SPRINT_REWORK);
-    console.log('[Rework] Tickets Sprint 34:', ticketsSprint34.length);
+    const ticketsSprint35 = tickets.filter(t => String(t.sprint || '').trim() === SPRINT_REWORK);
+    console.log('[Rework] Tickets Sprint 35:', ticketsSprint35.length);
 
-    if (ticketsSprint34.length === 0 || typeof changelogData === 'undefined') {
+    if (ticketsSprint35.length === 0 || typeof changelogData === 'undefined') {
         return { totalAnalizado: 0, conRework: 0, porcentaje: 0, ciclosTotales: 0, detalle: [] };
     }
 
@@ -734,7 +799,7 @@ function calcularRework(tickets) {
 
     const detalle = [];
 
-    ticketsSprint34.forEach(ticket => {
+    ticketsSprint35.forEach(ticket => {
         const historial = changelogData[ticket.clave];
         if (!historial || historial.length < 2) return;
 
@@ -776,14 +841,14 @@ function calcularRework(tickets) {
 
     const conRework = detalle.length;
     const ciclosTotales = detalle.reduce((s, t) => s + t.ciclos, 0);
-    const porcentaje = ticketsSprint34.length > 0
-        ? ((conRework / ticketsSprint34.length) * 100).toFixed(1)
+    const porcentaje = ticketsSprint35.length > 0
+        ? ((conRework / ticketsSprint35.length) * 100).toFixed(1)
         : '0.0';
 
     console.log('[Rework] Tickets con rework:', conRework, '| Ciclos totales:', ciclosTotales);
 
     return {
-        totalAnalizado: ticketsSprint34.length,
+        totalAnalizado: ticketsSprint35.length,
         conRework,
         porcentaje: parseFloat(porcentaje),
         ciclosTotales,
@@ -822,7 +887,7 @@ function renderKPIsAvanzados(kpis) {
             </button>
         </div>
         
-        ${renderLeadTimeSection(kpis.leadTime, kpis.sprintActual)}
+        ${renderLeadTimeSection(kpis.leadTime, kpis.sprintLeadTime)}
         ${renderCycleTimeSection(kpis.cycleTime)}
         ${renderReworkSection(kpis.rework)}
         ${renderEdadTicketsSection(kpis.edadTickets)}
@@ -1165,8 +1230,27 @@ function renderAnalisisErroresSection(analisis) {
             
             <div class="section-content-avanzado" id="errores-content">
                 <div class="chart-container-avanzado">
-                    <h3>Distribución por Sprint</h3>
-                    ${renderErroresSprintChart(analisis.porSprint)}
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                        <h3 style="margin:0;">Distribución por Sprint</h3>
+                        ${analisis.porSprint.some(s => s.spData) ? `
+                        <div id="errores-view-tabs" style="display:flex;gap:0;border:1px solid #E5E7EB;border-radius:6px;overflow:hidden;font-size:12px;">
+                            <button id="tab-errores-tickets" onclick="switchErroresView('tickets')"
+                                style="padding:5px 14px;border:none;background:#243F6B;color:#fff;cursor:pointer;font-weight:600;font-size:12px;transition:all 0.2s;">
+                                Tickets
+                            </button>
+                            <button id="tab-errores-sp" onclick="switchErroresView('sp')"
+                                style="padding:5px 14px;border:none;background:#F3F4F6;color:#6B7280;cursor:pointer;font-size:12px;transition:all 0.2s;">
+                                Story Points
+                            </button>
+                        </div>
+                        ` : ''}
+                    </div>
+                    <div id="errores-chart-tickets">
+                        ${renderErroresSprintChart(analisis.porSprint, 'tickets')}
+                    </div>
+                    <div id="errores-chart-sp" style="display:none;">
+                        ${renderErroresSprintChart(analisis.porSprint, 'sp')}
+                    </div>
                 </div>
                 
                 <div class="chart-container-avanzado">
@@ -1183,14 +1267,88 @@ function renderAnalisisErroresSection(analisis) {
     `;
 }
 
-function renderErroresSprintChart(sprints) {
-    return `
-        <div class="stacked-bar-chart">
-            ${sprints.map(sprint => {
-                const funcionalidadesPercent = (parseFloat(sprint.tasks.percent) + parseFloat(sprint.stories.percent)).toFixed(1);
-                const funcionalidadesCount = sprint.tasks.count + sprint.stories.count;
-                
+function renderErroresSprintChart(sprints, mode) {
+    const showSP = (mode === 'sp');
+
+    const rows = sprints.map(sprint => {
+        if (showSP) {
+            if (sprint.spData) {
+                const sp = sprint.spData;
+
+                // Construir desglose de bugs ordenados por SP desc
+                const bugsSorted = (sprint.bugs.tickets || [])
+                    .map(t => ({ clave: t.clave, sp: parseFloat(t.storyPointEstimate) || 0, resumen: t.resumen || '' }))
+                    .filter(t => t.sp > 0)
+                    .sort((a, b) => b.sp - a.sp);
+
+                const maxBugSP = bugsSorted.length > 0 ? bugsSorted[0].sp : 1;
+                const bugRows = bugsSorted.map(t => {
+                    const barPct = Math.round((t.sp / maxBugSP) * 100);
+                    const resumenCorto = t.resumen.length > 65 ? t.resumen.substring(0, 65) + '…' : t.resumen;
+                    return `
+                    <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #F9FAFB;">
+                        <span style="font-size:10px;color:#9CA3AF;width:70px;flex-shrink:0;">${t.clave}</span>
+                        <div style="width:80px;height:5px;background:#FEE2E2;border-radius:3px;flex-shrink:0;overflow:hidden;">
+                            <div style="width:${barPct}%;height:5px;background:#F44336;border-radius:3px;"></div>
+                        </div>
+                        <span style="font-size:10px;color:#EF4444;font-weight:600;width:28px;flex-shrink:0;">${t.sp}SP</span>
+                        <span style="font-size:11px;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.resumen}">${resumenCorto}</span>
+                    </div>`;
+                }).join('');
+
                 return `
+                <div class="stacked-bar-row">
+                    <div class="stacked-bar-label">${sprint.sprint}</div>
+                    <div class="stacked-bar-container">
+                        <div class="stacked-bar-segment" 
+                             style="width: ${sp.bugsPct}%; background: #F44336;" 
+                             title="Bugs: ${sp.bugsSP}SP (${sp.bugsPct}%)">
+                            ${sp.bugsPct}%
+                        </div>
+                        <div class="stacked-bar-segment" 
+                             style="width: ${sp.funcPct}%; background: #4CAF50;" 
+                             title="Tasks+Stories: ${sp.funcSP}SP (${sp.funcPct}%)">
+                            ${sp.funcPct}%
+                        </div>
+                        ${sp.otrosSP > 0 ? `
+                            <div class="stacked-bar-segment" 
+                                 style="width: ${parseFloat(100 - parseFloat(sp.bugsPct) - parseFloat(sp.funcPct)).toFixed(1)}%; background: #9E9E9E;" 
+                                 title="Otros: ${sp.otrosSP}SP">
+                            </div>
+                        ` : ''}
+                    </div>
+                    <span style="font-size:10px;color:#6B7280;margin-left:8px;white-space:nowrap;">${sp.bugsSP}SP vs ${sp.funcSP}SP</span>
+                </div>
+                ${bugsSorted.length > 0 ? `
+                <div style="padding:0 0 4px 90px;">
+                    <button onclick="(function(btn){
+                        var p=document.getElementById('bug-desglose-s35');
+                        var open=p.style.display!=='none';
+                        p.style.display=open?'none':'block';
+                        btn.innerHTML=open?'▶ Ver desglose de bugs (${bugsSorted.length} tickets · ${sp.bugsSP}SP)':'▼ Ocultar desglose';
+                    })(this)"
+                    style="font-size:11px;color:#9CA3AF;background:none;border:none;cursor:pointer;padding:3px 0;display:flex;align-items:center;gap:4px;transition:color 0.2s;"
+                    onmouseover="this.style.color='#EF4444'" onmouseout="this.style.color='#9CA3AF'">
+                        ▶ Ver desglose de bugs (${bugsSorted.length} tickets · ${sp.bugsSP}SP)
+                    </button>
+                    <div id="bug-desglose-s35" style="display:none;margin-top:6px;padding:8px 12px;background:#FFFBFB;border:1px solid #FEE2E2;border-radius:6px;">
+                        ${bugRows}
+                    </div>
+                </div>
+                ` : ''}`;
+            } else {
+                return `
+                <div class="stacked-bar-row" style="opacity:0.4;">
+                    <div class="stacked-bar-label">${sprint.sprint}</div>
+                    <div class="stacked-bar-container" style="background:#F3F4F6;border-radius:4px;height:28px;display:flex;align-items:center;padding-left:10px;">
+                        <span style="font-size:11px;color:#9CA3AF;font-style:italic;">Sin datos de Story Points</span>
+                    </div>
+                </div>`;
+            }
+        } else {
+            const funcionalidadesPercent = (parseFloat(sprint.tasks.percent) + parseFloat(sprint.stories.percent)).toFixed(1);
+            const funcionalidadesCount = sprint.tasks.count + sprint.stories.count;
+            return `
                 <div class="stacked-bar-row">
                     <div class="stacked-bar-label">${sprint.sprint}</div>
                     <div class="stacked-bar-container">
@@ -1212,14 +1370,23 @@ function renderErroresSprintChart(sprints) {
                             </div>
                         ` : ''}
                     </div>
-                </div>
-            `}).join('')}
-        </div>
-        <div class="chart-legend">
+                </div>`;
+        }
+    }).join('');
+
+    const s35sp = sprints.find(s => s.spData);
+    const legend = showSP
+        ? `<div class="chart-legend">
+            <span class="legend-item"><span class="legend-color" style="background: #F44336;"></span> Bugs (SP)</span>
+            <span class="legend-item"><span class="legend-color" style="background: #4CAF50;"></span> Tasks + Stories (SP)</span>
+            ${s35sp ? `<span style="font-size:10px;color:#6B7280;margin-left:14px;">Cobertura S35: ${s35sp.spData.coverage}/${s35sp.spData.coverageTotal} tickets con SP estimado</span>` : ''}
+           </div>`
+        : `<div class="chart-legend">
             <span class="legend-item"><span class="legend-color" style="background: #F44336;"></span> Bugs</span>
             <span class="legend-item"><span class="legend-color" style="background: #4CAF50;"></span> Tasks + Stories</span>
-        </div>
-    `;
+           </div>`;
+
+    return `<div class="stacked-bar-chart">${rows}</div>${legend}`;
 }
 
 function renderErroresDetalleTable(sprints) {
@@ -1271,6 +1438,143 @@ function renderErroresDetalleTable(sprints) {
 }
 
 // ==================== UTILIDADES ====================
+
+/**
+ * Alterna entre vista Tickets y Story Points en el chart de Análisis de Errores
+ */
+function switchErroresView(mode) {
+    const ticketsChart = document.getElementById('errores-chart-tickets');
+    const spChart      = document.getElementById('errores-chart-sp');
+    const tabTickets   = document.getElementById('tab-errores-tickets');
+    const tabSP        = document.getElementById('tab-errores-sp');
+    if (!ticketsChart || !spChart) return;
+
+    if (mode === 'sp') {
+        ticketsChart.style.display = 'none';
+        spChart.style.display      = 'block';
+        if (tabTickets) { tabTickets.style.background = '#F3F4F6'; tabTickets.style.color = '#6B7280'; tabTickets.style.fontWeight = ''; }
+        if (tabSP)      { tabSP.style.background      = '#243F6B'; tabSP.style.color      = '#fff';    tabSP.style.fontWeight      = '600'; }
+    } else {
+        ticketsChart.style.display = 'block';
+        spChart.style.display      = 'none';
+        if (tabTickets) { tabTickets.style.background = '#243F6B'; tabTickets.style.color = '#fff';    tabTickets.style.fontWeight = '600'; }
+        if (tabSP)      { tabSP.style.background      = '#F3F4F6'; tabSP.style.color      = '#6B7280'; tabSP.style.fontWeight      = ''; }
+    }
+}
+
+/**
+ * Muestra popup con los tickets de un rango de percentil SLE
+ * pType: 'p50' | 'p90' | 'p95' | 'ciclolargo' | 'sintiempo'
+ */
+function showSLEPopup(sprintKey, pType) {
+    const data = window._sleData && window._sleData[sprintKey];
+    if (!data) return;
+    const { p50, p90, p95, tickets } = data;
+    const SPRINT_DIAS = data.SPRINT_DIAS || 10;
+
+    let filtered, title, subtitle, accentColor;
+    if (pType === 'p50') {
+        filtered    = tickets.filter(t => (t.diasTotal||0) > 0 && (t.diasTotal||0) <= p50).sort((a,b) => a.diasTotal - b.diasTotal);
+        title       = `Ticket típico · P50 — ≤ ${formatTime(p50)}`;
+        subtitle    = `La mitad más rápida del sprint. ${filtered.length} tickets cerraron en ${formatTime(p50)} o menos.`;
+        accentColor = '#10B981';
+    } else if (pType === 'p90') {
+        filtered    = tickets.filter(t => (t.diasTotal||0) > p50 && (t.diasTotal||0) <= p90).sort((a,b) => a.diasTotal - b.diasTotal);
+        title       = `SLA del equipo · P90 — ${formatTime(p50)} a ${formatTime(p90)}`;
+        subtitle    = `Tickets en zona media. ${filtered.length} tickets tardaron entre ${formatTime(p50)} y ${formatTime(p90)}.`;
+        accentColor = '#F59E0B';
+    } else if (pType === 'p95') {
+        filtered    = tickets.filter(t => (t.diasTotal||0) > p90).sort((a,b) => b.diasTotal - a.diasTotal);
+        title       = `Zona lenta · P95 — > ${formatTime(p90)}`;
+        subtitle    = `Los ${filtered.length} tickets con ciclo más largo del sprint.`;
+        accentColor = '#F97316';
+    } else if (pType === 'sintiempo') {
+        filtered    = tickets.filter(t => (t.diasTotal||0) === 0).sort((a,b) => (a.clave||'').localeCompare(b.clave||''));
+        title       = `Sin tiempo en changelog — ${filtered.length} tickets`;
+        subtitle    = `No tienen entradas de tiempo en el changelog. No se incluyen en el cálculo de percentiles.`;
+        accentColor = '#9CA3AF';
+    } else if (pType === 'ciclolargo') {
+        filtered    = tickets.filter(t => (t.diasTotal||0) > SPRINT_DIAS).sort((a,b) => b.diasTotal - a.diasTotal);
+        title       = `Tickets con ciclo largo — > ${SPRINT_DIAS}d activos`;
+        subtitle    = `${filtered.length} ticket${filtered.length!==1?'s':''} del sprint con ciclo de trabajo mayor al sprint (${SPRINT_DIAS}d). Están incluidos en el SLE.`;
+        accentColor = '#EF4444';
+    } else if (pType === 'zone_green') {
+        filtered    = tickets.filter(t => (t.diasTotal||0) > 0 && (t.diasTotal||0) < 5).sort((a,b) => a.diasTotal - b.diasTotal);
+        title       = `Excelente · < 5d — ${filtered.length} tickets`;
+        subtitle    = `Tickets que cerraron en menos de la mitad del sprint (< 5 días hábiles).`;
+        accentColor = '#10B981';
+    } else if (pType === 'zone_yellow') {
+        filtered    = tickets.filter(t => (t.diasTotal||0) >= 5 && (t.diasTotal||0) <= 10).sort((a,b) => a.diasTotal - b.diasTotal);
+        title       = `Normal · 5–10d — ${filtered.length} tickets`;
+        subtitle    = `Tickets que cerraron dentro del sprint completo (5 a 10 días hábiles).`;
+        accentColor = '#F59E0B';
+    } else if (pType === 'zone_red') {
+        filtered    = tickets.filter(t => (t.diasTotal||0) > 10).sort((a,b) => b.diasTotal - a.diasTotal);
+        title       = `Ciclo largo · > 10d — ${filtered.length} tickets`;
+        subtitle    = `Tickets que superaron el sprint completo (> 10 días hábiles de ciclo activo).`;
+        accentColor = '#EF4444';
+    } else {
+        filtered    = tickets.filter(t => (t.diasTotal||0) > p90).sort((a,b) => b.diasTotal - a.diasTotal);
+        title       = `Zona lenta — > ${formatTime(p90)}`;
+        subtitle    = `${filtered.length} tickets en la zona alta del ciclo.`;
+        accentColor = '#F97316';
+    }
+
+    const prioColor = (p) => {
+        const pl = (p||'').toLowerCase();
+        return pl === 'highest' || pl === 'blocker' ? '#EF4444'
+             : pl === 'high'                         ? '#F97316'
+             : pl === 'medium'                        ? '#F59E0B'
+             : '#9CA3AF';
+    };
+
+    const rows = filtered.map(t => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #F3F4F6;">
+            <span style="font-size:11px;font-weight:700;color:#243F6B;min-width:85px;">${t.clave}</span>
+            <span style="flex:1;font-size:11px;color:#374151;line-height:1.3;">${(t.resumen||'').substring(0,70)}${(t.resumen||'').length>70?'\u2026':''}</span>
+            <span style="font-size:10px;font-weight:600;color:${prioColor(t.prioridad)};min-width:55px;text-align:center;">${t.prioridad||'\u2014'}</span>
+            <span style="font-size:12px;font-weight:700;color:#1F2937;min-width:55px;text-align:right;">${formatTime(t.diasTotal)}</span>
+        </div>`).join('');
+
+    const existing = document.getElementById('sle-popup-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'sle-popup-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+    overlay.innerHTML = `
+        <div style="background:#fff;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,0.25);max-width:660px;width:100%;max-height:78vh;display:flex;flex-direction:column;overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid #E5E7EB;background:#F9FAFB;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                <div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${accentColor};flex-shrink:0;"></span>
+                        <span style="font-size:13px;font-weight:700;color:#1F2937;">${title}</span>
+                    </div>
+                    <div style="font-size:11px;color:#6B7280;line-height:1.4;">${subtitle}</div>
+                </div>
+                <button onclick="document.getElementById('sle-popup-overlay').remove()" style="border:none;background:none;cursor:pointer;color:#9CA3AF;font-size:20px;line-height:1;padding:2px 4px;flex-shrink:0;">&#x2715;</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;background:#F3F4F6;border-bottom:1px solid #E5E7EB;">
+                <span style="font-size:9px;font-weight:700;color:#9CA3AF;text-transform:uppercase;min-width:85px;">Ticket</span>
+                <span style="flex:1;font-size:9px;font-weight:700;color:#9CA3AF;text-transform:uppercase;">Resumen</span>
+                <span style="font-size:9px;font-weight:700;color:#9CA3AF;text-transform:uppercase;min-width:55px;text-align:center;">Prioridad</span>
+                <span style="font-size:9px;font-weight:700;color:#9CA3AF;text-transform:uppercase;min-width:55px;text-align:right;">Duración</span>
+            </div>
+            <div style="overflow-y:auto;flex:1;">
+                ${filtered.length === 0
+                    ? '<div style="padding:24px;text-align:center;color:#9CA3AF;font-size:12px;">Sin tickets en este rango</div>'
+                    : rows}
+            </div>
+            <div style="padding:8px 16px;background:#F9FAFB;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:10px;color:#9CA3AF;">Haz clic fuera del panel para cerrar</span>
+                <span style="font-size:10px;font-weight:600;color:#374151;">${filtered.length} ticket${filtered.length !== 1 ? 's' : ''}</span>
+            </div>
+        </div>`;
+
+    document.body.appendChild(overlay);
+}
 
 /**
  * Trunca un texto a una longitud máxima
@@ -1745,7 +2049,7 @@ function renderCycleTimeSection(cycleTime) {
                         </svg>
                         <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Tiempo de Ciclo (Cycle Time)</h2>
                     </div>
-                    <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">Sprints 34, 35 | Sin datos</span>
+                    <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">Sprints 35, 36 | Sin datos</span>
                 </div>
             </div>
         `;
@@ -1754,18 +2058,7 @@ function renderCycleTimeSection(cycleTime) {
     const colorClass = cycleTime.promedio <= 7 ? 'kpi-success' : 
                       cycleTime.promedio <= 15 ? 'kpi-warning' : 'kpi-danger';
     
-    // Función auxiliar para formatear tiempo
-    const formatTime = (dias) => {
-        if (dias === 0) return '0h';
-        if (dias < 1) {
-            const horas = Math.round(dias * 24);
-            return `${horas}h`;
-        }
-        const diasEnteros = Math.floor(dias);
-        const horas = Math.round((dias - diasEnteros) * 24);
-        if (horas === 0) return `${diasEnteros}d`;
-        return `${diasEnteros}d ${horas}h`;
-    };
+    // formatTime disponible globalmente (ver inicio del archivo)
     
     // Agrupar tickets por sprint
     const ticketsPorSprint = {};
@@ -1780,8 +2073,8 @@ function renderCycleTimeSection(cycleTime) {
     // Ordenar sprints
     const sprintsOrdenados = Object.keys(ticketsPorSprint).sort((a, b) => Number(a) - Number(b));
     
-    // Contar solo tickets del sprint 34
-    const ticketsSprint34 = cycleTime.ticketsDetalle.filter(t => t.sprint === '34').length;
+    // Contar solo tickets del sprint 35
+    const ticketsSprint35 = cycleTime.ticketsDetalle.filter(t => t.sprint === '35').length;
     
     return `
         <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
@@ -1794,11 +2087,11 @@ function renderCycleTimeSection(cycleTime) {
                     </svg>
                     <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Tiempo de Ciclo (Cycle Time)</h2>
                 </div>
-                <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">Sprints 34, 35 | Pipeline de etapas por ticket</span>
+                <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">Sprints 35, 36 | Pipeline de etapas por ticket</span>
             </div>
             
             <div id="cycletime-content" class="section-content-avanzado">
-                <!-- Solo Tickets Finalizados Sprint 34 -->
+                <!-- Solo Tickets Finalizados Sprint 35 -->
                 <div class="kpi-cards-container">
                     <div class="kpi-card-avanzado" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
                         <div class="kpi-content-avanzado" style="color: white;">
@@ -1806,9 +2099,9 @@ function renderCycleTimeSection(cycleTime) {
                                 <svg class="w-6 h-6" style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                <div class="kpi-label-avanzado" style="color: rgba(255,255,255,0.9); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Sprint 34 Completado</div>
+                                <div class="kpi-label-avanzado" style="color: rgba(255,255,255,0.9); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Sprint 35 Completado</div>
                             </div>
-                            <div class="kpi-value-large" style="color: white; font-size: 36px; font-weight: bold;">${ticketsSprint34}</div>
+                            <div class="kpi-value-large" style="color: white; font-size: 36px; font-weight: bold;">${ticketsSprint35}</div>
                             <div style="color: rgba(255,255,255,0.8); font-size: 11px; margin-top: 4px;">Tickets Finalizados</div>
                         </div>
                     </div>
@@ -1818,7 +2111,95 @@ function renderCycleTimeSection(cycleTime) {
                 ${sprintsOrdenados.map(sprint => {
                     const tickets = ticketsPorSprint[sprint];
                     
-                    return `
+                    // Promedios por etapa: divide only by tickets that actually passed through each stage
+                const stageAvg = (field) => {
+                    const active = tickets.filter(t => (t.etapas[field] || 0) > 0);
+                    if (active.length === 0) return 0;
+                    return active.reduce((s, t) => s + t.etapas[field], 0) / active.length;
+                };
+                const avgInProcess  = stageAvg('inProcess');
+                const avgCodeReview = stageAvg('codeReview');
+                const avgInTestDev  = stageAvg('inTestDev');
+                const avgInTest     = stageAvg('inTest');
+                const avgBlocked    = stageAvg('blocked');
+                const avgTestIssue  = stageAvg('testIssue');
+                const avgTotal      = tickets.reduce((s, t) => s + (t.diasTotal || 0), 0) / tickets.length;
+                const hasBlocked    = tickets.some(t => t.etapas.blocked    > 0);
+                const hasTestIssue  = tickets.some(t => t.etapas.testIssue  > 0);
+
+                // ── Flow Efficiency (Touch Time / Total Lead Time) ─────────────
+                // Computed at sum level (per ticket) to avoid mixing averages over different subsets.
+                // Touch Time = active stages: In Process + Code Review + Test Dev + In Test
+                // Wait Time  = impediments:   Blocked + Test Issue
+                const sumInProcess  = tickets.reduce((s, t) => s + (t.etapas.inProcess  || 0), 0);
+                const sumCodeReview = tickets.reduce((s, t) => s + (t.etapas.codeReview || 0), 0);
+                const sumInTestDev  = tickets.reduce((s, t) => s + (t.etapas.inTestDev  || 0), 0);
+                const sumInTest     = tickets.reduce((s, t) => s + (t.etapas.inTest     || 0), 0);
+                const sumBlocked    = tickets.reduce((s, t) => s + (t.etapas.blocked    || 0), 0);
+                const sumTestIssue  = tickets.reduce((s, t) => s + (t.etapas.testIssue  || 0), 0);
+                const totalTouchTime   = sumInProcess + sumCodeReview + sumInTestDev + sumInTest;
+                const totalLeadTime    = tickets.reduce((s, t) => s + (t.diasTotal || 0), 0);
+                const activeAvg        = totalTouchTime / tickets.length;   // for bar widths only
+                const waitingAvg       = (sumBlocked + sumTestIssue) / tickets.length;
+                const flowEff          = totalLeadTime > 0 ? Math.round((totalTouchTime / totalLeadTime) * 100) : 0;
+                const waitEff    = 100 - flowEff;
+                // Benchmarks Lean para Touch Time inclusivo (4 etapas activas)
+                const flowColor       = flowEff >= 60 ? '#10B981' : flowEff >= 30 ? '#F59E0B' : '#EF4444';
+                const flowBg          = flowEff >= 60 ? '#D1FAE5' : flowEff >= 30 ? '#FEF3C7' : '#FEE2E2';
+                const flowLabelColor  = flowEff >= 60 ? '#065F46' : flowEff >= 30 ? '#92400E' : '#991B1B';
+                const flowLabel       = flowEff >= 60 ? 'Flujo Óptimo' : flowEff >= 30 ? 'Flujo Normal' : 'Flujo Crítico';
+                const flowDesc        = flowEff >= 60
+                    ? 'El equipo pasa la mayor parte del tiempo en trabajo activo (desarrollo + QA) — rendimiento Lean elite.'
+                    : flowEff >= 30
+                    ? 'Entre 30-60% de Touch Time es el rango típico de equipos Agile/Kanban maduros.'
+                    : 'Menos del 30% de Touch Time: los impedimentos (Blocked / Test Issues) están consumiendo el flujo.';
+
+                // ── Percentiles SLE ──────────────────────────────────────
+                const SPRINT_DIAS    = 10; // días hábiles de un sprint de 2 semanas
+                const nSinTiempo     = tickets.filter(t => (t.diasTotal||0) === 0).length;
+                const nCicloLargo    = tickets.filter(t => (t.diasTotal||0) > SPRINT_DIAS).length;
+                // Incluir TODOS los tickets con tiempo registrado (>0), sean del sprint o de ciclo largo
+                // Los de ciclo largo se marcan visualmente pero NO se excluyen del SLE
+                const sortedDias = tickets.map(t => t.diasTotal || 0).filter(d => d > 0).sort((a, b) => a - b);
+                const n = sortedDias.length; // todos los tickets con tiempo (excluye diasTotal=0)
+                const calcPct = (p) => {
+                    if (n === 0) return 0;
+                    const idx = Math.ceil((p / 100) * n) - 1;
+                    return sortedDias[Math.max(0, idx)];
+                };
+                const p50 = calcPct(50);
+                const p90 = calcPct(90);
+                const p95 = calcPct(95);
+
+                // Guardar datos globalmente para el popup SLE
+                if (!window._sleData) window._sleData = {};
+                window._sleData[`s${sprint}`] = {
+                    p50, p90, p95, n, sortedDias: [...sortedDias],
+                    tickets: tickets.map(t => ({
+                        clave: t.clave, resumen: t.resumen,
+                        diasTotal: t.diasTotal, prioridad: t.prioridad
+                    })),
+                    nSinTiempo, nCicloLargo, SPRINT_DIAS
+                };
+
+                // Semáforo por zone de sprint (2 semanas = 10d hábiles)
+                // <5d = Excelente (< mitad sprint) | 5-10d = Normal (dentro del sprint) | >10d = Ciclo largo
+                // Referencia: ActionableAgile SLE — los umbrales se anclan al tamaño del sprint
+                const pColor = (d) => d < 5  ? '#10B981' : d <= 10 ? '#F59E0B' : '#EF4444';
+                const pBg    = (d) => d < 5  ? '#D1FAE5' : d <= 10 ? '#FEF3C7' : '#FEE2E2';
+                const pTxt   = (d) => d < 5  ? '#065F46' : d <= 10 ? '#92400E' : '#991B1B';
+                const pLabel = (d) => d < 5  ? 'Excelente' : d <= 10 ? 'Normal' : 'Ciclo largo';
+                // Zonas sprint-aligned (sortedDias = todos los tickets con tiempo > 0)
+                const semGreen  = sortedDias.filter(d => d < 5).length;              // <5d  Excelente
+                const semYellow = sortedDias.filter(d => d >= 5 && d <= 10).length;  // 5-10d Normal
+                const semRed    = sortedDias.filter(d => d > 10).length;             // >10d  Ciclo largo
+                // Valor representativo de cada zona = promedio dentro del rango
+                const zoneAvg = (arr) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+                const zoneMaxGreen  = zoneAvg(sortedDias.filter(d => d <  5));
+                const zoneMaxYellow = zoneAvg(sortedDias.filter(d => d >= 5 && d <= 10));
+                const zoneMaxRed    = zoneAvg(sortedDias.filter(d => d >  10));
+
+                return `
                         <div class="subsection" style="margin-top: 25px; border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden;">
                             <!-- Header desplegable -->
                             <div class="collapsible" onclick="toggleSection('sprint-${sprint}-content')" 
@@ -1832,15 +2213,318 @@ function renderCycleTimeSection(cycleTime) {
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <span style="background: #EEF2FF; color: #6366F1; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${tickets.length} tickets</span>
+                                    <span style="background: #D1FAE5; color: #065F46; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">⌀ ${formatTime(avgTotal)}</span>
                                 </div>
                             </div>
                             
                             <!-- Contenido desplegable -->
                             <div id="sprint-${sprint}-content" class="section-content-avanzado" style="padding: 16px;">
+
+                                <!-- Promedio por etapa -->
+                                <div style="margin-bottom: 20px; background: #FFFFFF; border-radius: 8px; border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.06); overflow: hidden;">
+                                    <!-- Encabezado -->
+                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; background: #F9FAFB; border-bottom: 1px solid #E5E7EB;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <svg style="width:15px;height:15px;color:#243F6B;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                            </svg>
+                                            <span style="font-size: 11px; font-weight: 600; color: #374151; text-transform: uppercase; letter-spacing: 0.8px;">Promedio por etapa</span>
+                                        </div>
+                                        <span style="font-size: 11px; color: #9CA3AF; font-weight: 400;">${tickets.length} tickets · Sprint ${sprint}</span>
+                                    </div>
+                                    <!-- Etapas -->
+                                    <div style="display: flex; align-items: stretch; padding: 0; overflow-x: auto;">
+
+                                        <!-- In Process -->
+                                        <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; border-right: 1px solid #F3F4F6; gap: 6px;">
+                                            <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
+                                            <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">In Process</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgInProcess)}</div>
+                                        </div>
+
+                                        <div style="display: flex; align-items: center; padding: 0 2px; color: #D1D5DB; font-size: 13px;">›</div>
+
+                                        <!-- Code Review -->
+                                        <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; border-right: 1px solid #F3F4F6; gap: 6px;">
+                                            <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
+                                            <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Code Review</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgCodeReview)}</div>
+                                        </div>
+
+                                        <div style="display: flex; align-items: center; padding: 0 2px; color: #D1D5DB; font-size: 13px;">›</div>
+
+                                        <!-- Test Dev -->
+                                        <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; border-right: 1px solid #F3F4F6; gap: 6px;">
+                                            <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
+                                            <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Test Dev</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgInTestDev)}</div>
+                                        </div>
+
+                                        <div style="display: flex; align-items: center; padding: 0 2px; color: #D1D5DB; font-size: 13px;">›</div>
+
+                                        <!-- In Test -->
+                                        <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; ${hasBlocked || hasTestIssue ? 'border-right: 1px solid #F3F4F6;' : ''} gap: 6px;">
+                                            <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
+                                            <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">In Test</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgInTest)}</div>
+                                        </div>
+
+                                        ${hasBlocked ? `
+                                        <div style="display: flex; align-items: center; padding: 0 2px; color: #D1D5DB; font-size: 13px;">›</div>
+                                        <!-- Blocked -->
+                                        <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; ${hasTestIssue ? 'border-right: 1px solid #F3F4F6;' : ''} gap: 6px;">
+                                            <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
+                                            <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Blocked</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgBlocked)}</div>
+                                        </div>
+                                        ` : ''}
+
+                                        ${hasTestIssue ? `
+                                        <div style="display: flex; align-items: center; padding: 0 2px; color: #D1D5DB; font-size: 13px;">›</div>
+                                        <!-- Test Issue -->
+                                        <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; gap: 6px;">
+                                            <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
+                                            <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Test Issue</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgTestIssue)}</div>
+                                        </div>
+                                        ` : ''}
+
+                                        <!-- Divisor total -->
+                                        <div style="width: 1px; background: #E5E7EB; margin: 10px 0;"></div>
+
+                                        <!-- Total -->
+                                        <div style="min-width: 90px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 14px; background: #F8FAFF; gap: 6px;">
+                                            <div style="width: 28px; height: 3px; border-radius: 2px; background: #243F6B;"></div>
+                                            <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Promedio</div>
+                                            <div style="font-size: 18px; font-weight: 700; color: #243F6B; letter-spacing: -0.5px;">${formatTime(avgTotal)}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- ══ FLOW ANALYTICS CARD ══════════════════════════════════ -->
+                                <div style="margin-bottom:20px;background:#FFFFFF;border-radius:8px;border:1px solid #E5E7EB;box-shadow:0 1px 3px rgba(0,0,0,0.06);overflow:hidden;">
+                                    <!-- Header -->
+                                    <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 16px;background:#F9FAFB;border-bottom:1px solid #E5E7EB;">
+                                        <div style="display:flex;align-items:center;gap:8px;">
+                                            <svg style="width:15px;height:15px;color:#243F6B;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                            </svg>
+                                            <span style="font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.8px;">Flow Analytics</span>
+                                        </div>
+                                        <!-- Distribución por velocidad (puntos + números) -->
+                                        <div style="display:flex;align-items:center;gap:10px;">
+                                            <span style="font-size:10px;color:#6B7280;">${tickets.length} tickets</span>
+                                            <div style="display:flex;align-items:center;gap:4px;">
+                                                <span style="width:6px;height:6px;border-radius:50%;background:#10B981;display:inline-block;"></span>
+                                                <span style="font-size:11px;font-weight:600;color:#374151;">${semGreen}</span>
+                                                <span style="font-size:9px;color:#9CA3AF;">&lt;5d</span>
+                                            </div>
+                                            <div style="display:flex;align-items:center;gap:4px;">
+                                                <span style="width:6px;height:6px;border-radius:50%;background:#F59E0B;display:inline-block;"></span>
+                                                <span style="font-size:11px;font-weight:600;color:#374151;">${semYellow}</span>
+                                                <span style="font-size:9px;color:#9CA3AF;">5–10d</span>
+                                            </div>
+                                            <div style="display:flex;align-items:center;gap:4px;">
+                                                <span style="width:6px;height:6px;border-radius:50%;background:#EF4444;display:inline-block;"></span>
+                                                <span style="font-size:11px;font-weight:600;color:#374151;">${semRed}</span>
+                                                <span style="font-size:9px;color:#9CA3AF;">&gt;10d</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- Cuerpo: dos columnas -->
+                                    <div style="display:grid;grid-template-columns:1fr 1px 1fr;">
+
+                                        <!-- COLUMNA 1 — Flow Efficiency desglosado por etapa -->
+                                        <div style="padding:16px 20px;">
+                                            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;">
+                                                <div style="font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.8px;">Flow Efficiency — desglose por etapa</div>
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <span style="font-size:18px;font-weight:800;color:${flowColor};">${flowEff}%</span>
+                                                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${flowBg};color:${flowLabelColor};">${flowLabel}</span>
+                                                </div>
+                                            </div>
+
+                                            <!-- Sección 1 — DESARROLLO -->
+                                            <div style="font-size:9px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;display:flex;align-items:center;gap:5px;">
+                                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#243F6B;"></span> Desarrollo
+                                            </div>
+                                            ${[
+                                                { label:'In Process',  val: avgInProcess,  pct: totalLeadTime > 0 ? Math.round((sumInProcess  / totalLeadTime)*100) : 0 },
+                                                { label:'Code Review', val: avgCodeReview, pct: totalLeadTime > 0 ? Math.round((sumCodeReview / totalLeadTime)*100) : 0 }
+                                            ].map(e => {
+                                                const pctDisplay = (e.pct === 0 && (e.val||0) > 0) ? '<1%' : `${e.pct}%`;
+                                                return `
+                                                <div style="margin-bottom:7px;">
+                                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                                        <span style="font-size:11px;color:#374151;">${e.label}</span>
+                                                        <div style="display:flex;align-items:center;gap:6px;">
+                                                            <span style="font-size:11px;font-weight:600;color:#374151;">${formatTime(e.val)}</span>
+                                                            <span style="font-size:10px;color:#243F6B;font-weight:700;width:32px;text-align:right;">${pctDisplay}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div style="height:7px;background:#E5E7EB;border-radius:4px;overflow:hidden;">
+                                                        <div style="height:100%;width:${Math.max(e.pct,((e.val||0)>0?1:0))}%;background:#243F6B;border-radius:4px;"></div>
+                                                    </div>
+                                                </div>`;
+                                            }).join('')}
+
+                                            <!-- Sección 2 — VERIFICACIÓN Y CONTROL -->
+                                            <div style="font-size:9px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.6px;margin:10px 0 6px;display:flex;align-items:center;gap:5px;">
+                                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748B;"></span> Verificación y Control
+                                            </div>
+                                            ${[
+                                                { label:'Test Dev', val: avgInTestDev, pct: totalLeadTime > 0 ? Math.round((sumInTestDev / totalLeadTime)*100) : 0 },
+                                                { label:'In Test',  val: avgInTest,    pct: totalLeadTime > 0 ? Math.round((sumInTest    / totalLeadTime)*100) : 0 }
+                                            ].map(e => {
+                                                const pctDisplay = (e.pct === 0 && (e.val||0) > 0) ? '<1%' : `${e.pct}%`;
+                                                return `
+                                                <div style="margin-bottom:7px;">
+                                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                                        <span style="font-size:11px;color:#374151;">${e.label}</span>
+                                                        <div style="display:flex;align-items:center;gap:6px;">
+                                                            <span style="font-size:11px;font-weight:600;color:#374151;">${formatTime(e.val)}</span>
+                                                            <span style="font-size:10px;color:#64748B;font-weight:700;width:32px;text-align:right;">${pctDisplay}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div style="height:7px;background:#E5E7EB;border-radius:4px;overflow:hidden;">
+                                                        <div style="height:100%;width:${Math.max(e.pct,((e.val||0)>0?1:0))}%;background:#64748B;border-radius:4px;"></div>
+                                                    </div>
+                                                </div>`;
+                                            }).join('')}
+
+                                            <!-- Sección 3 — IMPEDIMENTOS (solo si hay) -->
+                                            ${(avgBlocked > 0 || avgTestIssue > 0) ? `
+                                            <div style="font-size:9px;font-weight:700;color:#991B1B;text-transform:uppercase;letter-spacing:0.6px;margin:10px 0 6px;display:flex;align-items:center;gap:5px;">
+                                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#EF4444;"></span> Impedimentos
+                                            </div>
+                                            ${[
+                                                { label:'Blocked',    val: avgBlocked,   pct: totalLeadTime > 0 ? Math.round((sumBlocked   / totalLeadTime)*100) : 0 },
+                                                { label:'Test Issue', val: avgTestIssue, pct: totalLeadTime > 0 ? Math.round((sumTestIssue / totalLeadTime)*100) : 0 }
+                                            ].filter(e => e.val > 0).map(e => {
+                                                const pctDisplay = (e.pct === 0 && (e.val||0) > 0) ? '<1%' : `${e.pct}%`;
+                                                return `
+                                                <div style="margin-bottom:7px;">
+                                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                                        <span style="font-size:11px;color:#374151;">${e.label}</span>
+                                                        <div style="display:flex;align-items:center;gap:6px;">
+                                                            <span style="font-size:11px;font-weight:600;color:#374151;">${formatTime(e.val)}</span>
+                                                            <span style="font-size:10px;color:#EF4444;font-weight:700;width:32px;text-align:right;">${pctDisplay}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div style="height:7px;background:#E5E7EB;border-radius:4px;overflow:hidden;">
+                                                        <div style="height:100%;width:${Math.max(e.pct,1)}%;background:#EF4444;border-radius:4px;"></div>
+                                                    </div>
+                                                </div>`;
+                                            }).join('')}` : ''}
+
+                                            <!-- Benchmarks -->
+                                            <div style="margin-top:10px;padding:7px 10px;background:${flowBg};border-radius:6px;border-left:3px solid ${flowColor};">
+                                                <div style="font-size:10px;color:${flowLabelColor};line-height:1.5;">${flowDesc}</div>
+                                            </div>
+                                            <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+                                                <span style="font-size:9px;padding:2px 6px;background:#D1FAE5;color:#065F46;border-radius:4px;">≥60% Óptimo</span>
+                                                <span style="font-size:9px;padding:2px 6px;background:#FEF3C7;color:#92400E;border-radius:4px;">30–60% Normal</span>
+                                                <span style="font-size:9px;padding:2px 6px;background:#FEE2E2;color:#991B1B;border-radius:4px;">&lt;30% Crítico</span>
+                                                <span style="font-size:9px;color:#9CA3AF;">Lean Touch Time · Kanban Guide</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Divisor vertical -->
+                                        <div style="background:#E5E7EB;"></div>
+
+                                        <!-- COLUMNA 2 — Percentiles SLE visual -->
+                                        <div style="padding:16px 20px;">
+                                            <div style="font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px;">Service Level Expectation</div>
+
+                                            <!-- Barra de distribución de tickets por zona semáforo -->
+                                            <div style="margin-bottom:14px;">
+                                                <div style="font-size:9px;color:#9CA3AF;margin-bottom:5px;">
+                                                    Distribución de los ${n} tickets por ciclo de trabajo
+                                                    ${nCicloLargo > 0 ? `<span style="color:#EF4444;"> · ${nCicloLargo} con ciclo &gt;${SPRINT_DIAS}d</span>` : ''}
+                                                    ${nSinTiempo > 0 ? `<span style="color:#9CA3AF;"> · ${nSinTiempo} sin tiempo en changelog</span>` : ''}
+                                                </div>
+                                                    <div style="height:6px;border-radius:6px;overflow:hidden;display:flex;gap:2px;">
+                                                    ${semGreen  > 0 ? `<div style="flex:${semGreen};background:#A7F3D0;border-radius:4px 0 0 4px;" title="<5d: ${semGreen} tickets"></div>` : ''}
+                                                    ${semYellow > 0 ? `<div style="flex:${semYellow};background:#FDE68A;${semRed===0?'border-radius:0 4px 4px 0;':''}" title="5-10d: ${semYellow} tickets"></div>` : ''}
+                                                    ${semRed    > 0 ? `<div style="flex:${semRed};background:#FCA5A5;border-radius:0 4px 4px 0;" title=">10d: ${semRed} tickets"></div>` : ''}
+                                                </div>
+                                                <div style="display:flex;gap:12px;margin-top:5px;flex-wrap:wrap;">
+                                                    ${semGreen  > 0 ? `<span style="font-size:9px;color:#6B7280;display:flex;align-items:center;gap:3px;"><span style='width:5px;height:5px;border-radius:50%;background:#10B981;display:inline-block;'></span>${semGreen} &lt;5d</span>` : ''}
+                                                    ${semYellow > 0 ? `<span style="font-size:9px;color:#6B7280;display:flex;align-items:center;gap:3px;"><span style='width:5px;height:5px;border-radius:50%;background:#F59E0B;display:inline-block;'></span>${semYellow} 5–10d</span>` : ''}
+                                                    ${semRed    > 0 ? `<span style="font-size:9px;color:#6B7280;display:flex;align-items:center;gap:3px;"><span style='width:5px;height:5px;border-radius:50%;background:#EF4444;display:inline-block;'></span>${semRed} &gt;10d</span>` : ''}
+                                                </div>
+                                            </div>
+
+                                            <!-- Cards < 5d / 5–10d / > 10d con promedio de zona -->
+                                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+                                                ${[
+                                                    { p:'< 5d',  val:zoneMaxGreen,  color:'#10B981', bg:'#D1FAE5', txt:'#065F46', zoneCount:semGreen,  desc:`< 5d · ${semGreen}/${n} tickets`,   key:'zone_green'  },
+                                                    { p:'5–10d', val:zoneMaxYellow, color:'#F59E0B', bg:'#FEF3C7', txt:'#92400E', zoneCount:semYellow, desc:`5–10d · ${semYellow}/${n} tickets`, key:'zone_yellow', sla:true },
+                                                    { p:'> 10d', val:zoneMaxRed,    color:'#EF4444', bg:'#FEE2E2', txt:'#991B1B', zoneCount:semRed,    desc:`> 10d · ${semRed}/${n} tickets`,   key:'zone_red'    }
+                                                ].map(item => `
+                                                    <div style="text-align:center;padding:10px 6px;border-radius:8px;background:#FFFFFF;border:1px solid #E5E7EB;border-top:2px solid ${item.color};cursor:pointer;transition:box-shadow 0.15s;position:relative;"
+                                                         onclick="showSLEPopup('s${sprint}', '${item.key}')"
+                                                         onmouseenter="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)';"
+                                                         onmouseleave="this.style.boxShadow='none';">
+                                                        ${item.sla ? `<div style="position:absolute;top:-1px;left:50%;transform:translateX(-50%);font-size:8px;font-weight:700;background:#243F6B;color:#fff;padding:1px 8px;border-radius:0 0 6px 6px;letter-spacing:0.5px;">SLA</div>` : ''}
+                                                        <div style="font-size:9px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;margin-top:${item.sla ? '8px' : '0'};">${item.p}</div>
+                                                        <div style="font-size:17px;font-weight:800;color:#1F2937;line-height:1;">${formatTime(item.val)}</div>
+                                                        <div style="margin-top:7px;display:flex;align-items:center;justify-content:center;gap:5px;">
+                                                            <span style="font-size:10px;font-weight:600;color:${item.txt};background:${item.bg};padding:1px 6px;border-radius:4px;">✓ ${item.zoneCount}/${n}</span>
+                                                        </div>
+                                                        <div style="font-size:9px;color:#9CA3AF;margin-top:5px;line-height:1.3;">${item.desc}</div>
+                                                        <div style="font-size:9px;color:#9CA3AF;margin-top:5px;">Ver tickets →</div>
+                                                    </div>`
+                                                ).join('')}
+                                            </div>
+
+                                            <!-- ── Percentile cards ─────────────────────────────── -->
+                                            ${n > 0 ? (() => {
+                                                const p50c = Math.round(n * 0.50);
+                                                const p90c = Math.round(n * 0.90);
+                                                const p95c = Math.round(n * 0.95);
+                                                return `
+                                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:#E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:14px;">
+                                                ${[
+                                                    { label:'P50', val:p50, count:p50c, pct:50,  color:'#059669', bg:'#F0FDF4' },
+                                                    { label:'P90', val:p90, count:p90c, pct:90,  color:'#D97706', bg:'#FFFBEB' },
+                                                    { label:'P95', val:p95, count:p95c, pct:95,  color:'#DC2626', bg:'#FEF2F2' }
+                                                ].map(it => `
+                                                    <div style="background:${it.bg};padding:10px 12px;display:flex;flex-direction:column;gap:3px;">
+                                                        <span style="font-size:9px;font-weight:700;color:${it.color};text-transform:uppercase;letter-spacing:0.7px;">${it.label}</span>
+                                                        <span style="font-size:18px;font-weight:800;color:#1F2937;letter-spacing:-0.5px;line-height:1.1;">${formatTime(it.val)}</span>
+                                                        <span style="font-size:9px;color:#6B7280;line-height:1.4;">${it.pct}% cerraron<br>≤ ${formatTime(it.val)} · <strong style="color:#374151;">${it.count}/${n}</strong></span>
+                                                    </div>`
+                                                ).join('')}
+                                            </div>`;
+                                            })() : ''}
+                                            <!-- ── / Percentile cards ─────────────────────────────── -->
+
+                                            <!-- Nota ciclo largo / sin tiempo -->
+                                            ${nCicloLargo > 0 || nSinTiempo > 0 ? `
+                                            <div style="margin-bottom:8px;padding:6px 10px;border-radius:6px;background:#F9FAFB;border:1px solid #E5E7EB;">
+                                                <div style="font-size:10px;color:#6B7280;margin-bottom:3px;">
+                                                    De los <strong>${tickets.length} tickets</strong> del sprint: <strong style="color:#374151;">${n}</strong> con tiempo registrado se usan en el cálculo.
+                                                </div>
+                                                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                                                    ${nCicloLargo > 0 ? `<span style="font-size:10px;color:#EF4444;">&#9888; ${nCicloLargo} con ciclo &gt;${SPRINT_DIAS}d <em style="color:#9CA3AF;">(incluidos en SLE)</em></span>` : ''}
+                                                    ${nSinTiempo > 0 ? `<span style="font-size:10px;color:#9CA3AF;">&#9432; ${nSinTiempo} sin tiempo en changelog</span>` : ''}
+                                                    ${nCicloLargo > 0 ? `<button onclick="showSLEPopup('s${sprint}', 'ciclolargo')" style="font-size:10px;font-weight:600;color:#EF4444;background:white;border:1px solid #FCA5A5;border-radius:5px;padding:2px 8px;cursor:pointer;">Ver ciclo largo</button>` : ''}
+                                                    ${nSinTiempo > 0 ? `<button onclick="showSLEPopup('s${sprint}', 'sintiempo')" style="font-size:10px;font-weight:600;color:#6B7280;background:white;border:1px solid #D1D5DB;border-radius:5px;padding:2px 8px;cursor:pointer;">Ver sin tiempo</button>` : ''}
+                                                </div>
+                                            </div>` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- ══ FIN FLOW ANALYTICS ════════════════════════════════════ -->
+
                                 <!-- Contenedor con scroll para TODOS los tickets -->
                                 <div style="max-height: 500px; overflow-y: auto; padding-right: 8px;">
-                                    ${tickets.map(ticket => `
-                                        <div style="margin-bottom: 12px; padding: 12px; background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 3px solid ${ticket.prioridad === 'High' || ticket.prioridad === 'Highest' ? '#EF4444' : '#3B82F6'}; transition: all 0.2s ease;" onmouseover="this.style.boxShadow='0 4px 6px rgba(0,0,0,0.15)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)'">
+                                    ${tickets.map(ticket => {
+                                        const d = ticket.diasTotal || 0;
+                                        const semaColor = pColor(d);
+                                        return `
+                                        <div style="margin-bottom: 12px; padding: 12px; background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 3px solid ${semaColor}; transition: all 0.2s ease;" onmouseover="this.style.boxShadow='0 4px 6px rgba(0,0,0,0.15)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)'">
                                             <!-- Header del ticket -->
                                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                                                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -1863,72 +2547,38 @@ function renderCycleTimeSection(cycleTime) {
                                                 <!-- In Process -->
                                                 <div style="text-align: center; flex: 1;">
                                                     <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">In Process</div>
-                                                    <div style="font-size: 14px; font-weight: 700; color: #06B6D4;">${formatTime(ticket.etapas.inProcess)}</div>
+                                                    <div style="font-size: 14px; font-weight: 700; color: ${(ticket.etapas.inProcess||0) > 0 ? '#06B6D4' : '#D1D5DB'};">${formatTime(ticket.etapas.inProcess)}</div>
                                                 </div>
-                                                
-                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                                </svg>
-                                                
-                                                <!-- Code Review -->
-                                                <div style="text-align: center; flex: 1;">
-                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Code Review</div>
-                                                    <div style="font-size: 14px; font-weight: 700; color: #10B981;">${formatTime(ticket.etapas.codeReview)}</div>
-                                                </div>
-                                                
-                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                                </svg>
-                                                
-                                                <!-- In Test Dev -->
-                                                <div style="text-align: center; flex: 1;">
-                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Test Dev</div>
-                                                    <div style="font-size: 14px; font-weight: 700; color: #F59E0B;">${formatTime(ticket.etapas.inTestDev)}</div>
-                                                </div>
-                                                
-                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                                </svg>
-                                                
-                                                <!-- In Test -->
-                                                <div style="text-align: center; flex: 1;">
-                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">In Test</div>
-                                                    <div style="font-size: 14px; font-weight: 700; color: #EC4899;">${formatTime(ticket.etapas.inTest)}</div>
-                                                </div>
-                                                
-                                                ${ticket.etapas.blocked > 0 ? `
-                                                    <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
-                                                        <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+
+                                                ${[
+                                                    { label:'Blocked',     val: ticket.etapas.blocked,    color:'#8B5CF6' },
+                                                    { label:'Code Review', val: ticket.etapas.codeReview, color:'#10B981' },
+                                                    { label:'Test Dev',    val: ticket.etapas.inTestDev,  color:'#F59E0B' },
+                                                    { label:'In Test',     val: ticket.etapas.inTest,     color:'#EC4899' },
+                                                    { label:'Test Issue',  val: ticket.etapas.testIssue,  color:'#F97316' }
+                                                ].map(e => {
+                                                    const hasTime = (e.val || 0) > 0;
+                                                    return `
+                                                    <svg style="width:14px;height:14px;color:#D1D5DB;flex-shrink:0;" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
                                                     </svg>
-                                                    <!-- Blocked -->
-                                                    <div style="text-align: center; flex: 1;">
-                                                        <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Blocked</div>
-                                                        <div style="font-size: 14px; font-weight: 700; color: #8B5CF6;">${formatTime(ticket.etapas.blocked)}</div>
-                                                    </div>
-                                                ` : ''}
-                                                
-                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                                </svg>
-                                                
-                                                <!-- Test Issue -->
-                                                <div style="text-align: center; flex: 1;">
-                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Test Issue</div>
-                                                    <div style="font-size: 14px; font-weight: 700; color: #F97316;">${formatTime(ticket.etapas.testIssue)}</div>
-                                                </div>
-                                                
-                                                <svg class="w-4 h-4" style="width: 14px; height: 14px; color: #D1D5DB;" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                                </svg>
-                                                
+                                                    <div style="text-align:center;flex:1;${!hasTime ? 'opacity:0.4;' : ''}">
+                                                        <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;font-weight:600;">${e.label}</div>
+                                                        <div style="font-size:14px;font-weight:700;color:${hasTime ? e.color : '#D1D5DB'};">${formatTime(e.val)}</div>
+                                                    </div>`;
+                                                }).join('')}
+
                                                 <!-- Finalizado -->
-                                                <div style="text-align: center; flex: 1;">
-                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">Finalizado</div>
-                                                    <div style="font-size: 13px; font-weight: 700; color: #9CA3AF; letter-spacing: 1px;">N/A</div>
+                                                <svg style="width:14px;height:14px;color:#D1D5DB;flex-shrink:0;" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                                </svg>
+                                                <div style="text-align:center;flex:1;">
+                                                    <div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;font-weight:600;">Finalizado</div>
+                                                    <div style="font-size:13px;font-weight:700;color:#9CA3AF;letter-spacing:1px;">N/A</div>
                                                 </div>
                                             </div>
                                         </div>
-                                    `).join('')}
+                                    `; }).join('')}
                                 </div>
                                 
                                 <!-- Contador al final -->
@@ -1981,7 +2631,7 @@ function renderReworkSection(rework) {
                 <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Reprocesos (Rework)</h2>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
-                <span style="background:#EEF2FF;color:#4F46E5;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">Sprint 34</span>
+                <span style="background:#EEF2FF;color:#4F46E5;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">Sprint 35</span>
                 ${extraBadge}
             </div>
         </div>`;
@@ -1993,17 +2643,50 @@ function renderReworkSection(rework) {
             </div>`;
     }
 
-    const statusColor = rework.porcentaje <= 5  ? { bg: '#D1FAE5', text: '#065F46', ring: '#6EE7B7' }
-                      : rework.porcentaje <= 15 ? { bg: '#FEF3C7', text: '#92400E', ring: '#FCD34D' }
-                                                : { bg: '#FEE2E2', text: '#991B1B', ring: '#FCA5A5' };
+    // Umbrales basados en DORA Metrics + Lean/Agile
+    // % Rework: ≤5% bueno, 5-10% atención, >10% crítico
+    // Ciclos/ticket: ≤1.5 bueno, 1.5-2.5 atención, >2.5 crítico
+    const pctStatus = rework.porcentaje <= 5  ? { bg: '#D1FAE5', text: '#065F46', ring: '#6EE7B7', label: 'Bueno',     icon: '✓', barColor: '#10B981' }
+                    : rework.porcentaje <= 10 ? { bg: '#FEF3C7', text: '#92400E', ring: '#FCD34D', label: 'Atención',  icon: '⚠', barColor: '#F59E0B' }
+                                              : { bg: '#FEE2E2', text: '#991B1B', ring: '#FCA5A5', label: 'Crítico',   icon: '✕', barColor: '#EF4444' };
+
+    const ciclosPorTicket = rework.conRework > 0 ? (rework.ciclosTotales / rework.conRework) : 0;
+    const ciclosStatus = ciclosPorTicket <= 1.5 ? { bg: '#D1FAE5', text: '#065F46', ring: '#6EE7B7', label: 'Bueno',    icon: '✓', barColor: '#10B981' }
+                       : ciclosPorTicket <= 2.5 ? { bg: '#FEF3C7', text: '#92400E', ring: '#FCD34D', label: 'Atención', icon: '⚠', barColor: '#F59E0B' }
+                                                : { bg: '#FEE2E2', text: '#991B1B', ring: '#FCA5A5', label: 'Crítico',  icon: '✕', barColor: '#EF4444' };
+
+    // Barra de umbral visual: 0–20% de ancho máximo, marcadores en 5% y 10%
+    const pctBarWidth   = Math.min((rework.porcentaje / 20) * 100, 100);
+    const ciclosBarWidth = Math.min((ciclosPorTicket / 3) * 100, 100);
+
+    // Tooltip helper: ⓘ con contenido emergente al hacer hover
+    // Tooltip con position:fixed para escapar de contenedores overflow:hidden
+    const tooltip = (id, content) =>
+        `<span style="display:inline-block;cursor:help;margin-left:5px;vertical-align:middle;"
+               onmouseenter="(function(el){var r=el.getBoundingClientRect(),t=document.getElementById('tt-${id}');t.style.display='block';var left=r.left+r.width/2-140;if(left<8)left=8;if(left+280>window.innerWidth-8)left=window.innerWidth-288;t.style.left=left+'px';t.style.top=(r.top-8)+'px';})(this)"
+               onmouseleave="document.getElementById('tt-${id}').style.display='none'">
+            <svg style="width:13px;height:13px;color:#9CA3AF;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+        </span>
+        <div id="tt-${id}" style="display:none;position:fixed;transform:translateY(-100%);
+             width:280px;background:#1E293B;color:#F1F5F9;font-size:11px;line-height:1.5;font-weight:400;
+             padding:10px 12px;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.3);z-index:99999;pointer-events:none;
+             text-align:left;white-space:normal;">
+            ${content}
+            <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);
+                 width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;
+                 border-top:6px solid #1E293B;"></div>
+        </div>`;
 
     const badgeStatus = rework.conRework === 0
         ? '<span style="background:#D1FAE5;color:#065F46;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">✓ Sin reprocesos</span>'
-        : `<span style="background:${statusColor.bg};color:${statusColor.text};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">${rework.conRework} con reproceso</span>`;
+        : `<span style="background:${pctStatus.bg};color:${pctStatus.text};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">${rework.conRework} con reproceso</span>`;
 
-    // Flujo visual: In Test → Test Issues → Code Review / In Process
+    // Flujo visual
     const flujoHtml = `
-        <div style="display:flex;align-items:center;gap:6px;padding:10px 14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:6px;padding:10px 14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;margin-bottom:16px;flex-wrap:wrap;">
             <span style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.5px;">Flujo detectado:</span>
             <span style="background:#DBEAFE;color:#1E40AF;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;">In Test</span>
             <svg style="width:14px;height:14px;color:#94A3B8;" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
@@ -2012,24 +2695,86 @@ function renderReworkSection(rework) {
             <span style="background:#ECFDF5;color:#065F46;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;">Code Review / In Process</span>
         </div>`;
 
-    // KPI cards
+    // KPI cards con umbrales y tooltips
     const cards = `
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;">
+
+            <!-- Tickets analizados -->
             <div style="background:white;border:1px solid #E5E7EB;border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
                 <div style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Tickets analizados</div>
-                <div style="font-size:28px;font-weight:800;color:#1F2937;">${rework.totalAnalizado}</div>
-                <div style="font-size:10px;color:#9CA3AF;margin-top:2px;">Sprint 34</div>
+                <div style="font-size:32px;font-weight:800;color:#1F2937;line-height:1;">${rework.totalAnalizado}</div>
+                <div style="font-size:10px;color:#9CA3AF;margin-top:4px;">Sprint 35 · Todos los estados</div>
             </div>
-            <div style="background:${statusColor.bg};border:1px solid ${statusColor.ring};border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
-                <div style="font-size:11px;color:${statusColor.text};font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">% con reproceso</div>
-                <div style="font-size:28px;font-weight:800;color:${statusColor.text};">${rework.porcentaje}%</div>
-                <div style="font-size:10px;color:${statusColor.text};opacity:.7;margin-top:2px;">${rework.conRework} / ${rework.totalAnalizado} tickets</div>
+
+            <!-- % con reproceso + umbral DORA -->
+            <div style="background:${pctStatus.bg};border:1px solid ${pctStatus.ring};border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+                <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:6px;">
+                    <span style="font-size:11px;color:${pctStatus.text};font-weight:600;text-transform:uppercase;letter-spacing:.5px;">% con reproceso</span>
+                    ${tooltip('rework-pct',
+                        '<strong style="color:#93C5FD;">DORA · Change Failure Rate</strong><br>' +
+                        'Porcentaje de tickets que requirieron retrabajo (regresaron de QA a Dev).<br><br>' +
+                        '<span style="color:#86EFAC;">✓ Bueno</span> ≤ 5% · Equipos maduros con DoD sólido<br>' +
+                        '<span style="color:#FDE68A;">⚠ Atención</span> 5–10% · Proceso bajo control<br>' +
+                        '<span style="color:#FCA5A5;">✕ Crítico</span> > 10% · Problemas sistémicos<br><br>' +
+                        '<span style="color:#CBD5E1;">El Change Failure Rate es la métrica DORA más cercana a nuestro % Rework — ambos miden la tasa de trabajo que tuvo que rehacerse por defectos de calidad. Los umbrales (≤5% bueno, >10% crítico) están basados en los benchmarks que DORA publica para equipos Elite/High.</span><br><br>' +
+                        '<em style="color:#94A3B8;font-size:10px;">Ref: Accelerate (Forsgren et al.) · DORA 2023</em>'
+                    )}
+                </div>
+                <div style="font-size:32px;font-weight:800;color:${pctStatus.text};line-height:1;">${rework.porcentaje}%</div>
+                <div style="font-size:10px;color:${pctStatus.text};opacity:.75;margin-top:4px;">${rework.conRework} / ${rework.totalAnalizado} tickets</div>
+                <!-- Barra de umbral -->
+                <div style="margin-top:10px;position:relative;height:5px;background:#E5E7EB;border-radius:3px;overflow:hidden;">
+                    <div style="position:absolute;left:0;top:0;height:100%;width:${pctBarWidth}%;background:${pctStatus.barColor};border-radius:3px;transition:width .4s ease;"></div>
+                    <!-- Marcador 5% -->
+                    <div style="position:absolute;left:25%;top:-1px;height:7px;width:1.5px;background:rgba(0,0,0,.2);"></div>
+                    <!-- Marcador 10% -->
+                    <div style="position:absolute;left:50%;top:-1px;height:7px;width:1.5px;background:rgba(0,0,0,.2);"></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:9px;color:${pctStatus.text};opacity:.6;margin-top:3px;">
+                    <span>0%</span><span>5%</span><span>10%</span><span>20%</span>
+                </div>
+                <!-- Estado -->
+                <div style="margin-top:8px;display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.5);padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;color:${pctStatus.text};">
+                    ${pctStatus.icon} ${pctStatus.label}
+                </div>
             </div>
+
+            <!-- Ciclos totales -->
             <div style="background:white;border:1px solid #E5E7EB;border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
                 <div style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Ciclos totales</div>
-                <div style="font-size:28px;font-weight:800;color:#F97316;">${rework.ciclosTotales}</div>
-                <div style="font-size:10px;color:#9CA3AF;margin-top:2px;">In Test → Test Issues → Dev</div>
+                <div style="font-size:32px;font-weight:800;color:#F97316;line-height:1;">${rework.ciclosTotales}</div>
+                <div style="font-size:10px;color:#9CA3AF;margin-top:4px;">In Test → Test Issues → Dev</div>
             </div>
+
+            <!-- Ciclos / ticket con reproceso -->
+            <div style="background:${ciclosStatus.bg};border:1px solid ${ciclosStatus.ring};border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+                <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:6px;">
+                    <span style="font-size:11px;color:${ciclosStatus.text};font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Ciclos / ticket</span>
+                    ${tooltip('rework-ciclos',
+                        '<strong style="color:#93C5FD;">Lean · Rework Rate per Item</strong><br>' +
+                        'Promedio de veces que un ticket con reproceso rebotó entre QA y Dev. Un valor alto indica defectos recurrentes o criterios de aceptación poco claros.<br><br>' +
+                        '<span style="color:#86EFAC;">✓ Bueno</span> ≤ 1.5 ciclos/ticket<br>' +
+                        '<span style="color:#FDE68A;">⚠ Atención</span> 1.5–2.5<br>' +
+                        '<span style="color:#FCA5A5;">✕ Crítico</span> > 2.5 · Deuda de calidad<br><br>' +
+                        '<em style="color:#94A3B8;font-size:10px;">Ref: Lean Software Development · Poppendieck</em>'
+                    )}
+                </div>
+                <div style="font-size:32px;font-weight:800;color:${ciclosStatus.text};line-height:1;">${ciclosPorTicket.toFixed(1)}</div>
+                <div style="font-size:10px;color:${ciclosStatus.text};opacity:.75;margin-top:4px;">${rework.ciclosTotales} ciclos · ${rework.conRework} tickets</div>
+                <!-- Barra de umbral -->
+                <div style="margin-top:10px;position:relative;height:5px;background:#E5E7EB;border-radius:3px;overflow:hidden;">
+                    <div style="position:absolute;left:0;top:0;height:100%;width:${ciclosBarWidth}%;background:${ciclosStatus.barColor};border-radius:3px;transition:width .4s ease;"></div>
+                    <div style="position:absolute;left:50%;top:-1px;height:7px;width:1.5px;background:rgba(0,0,0,.2);"></div>
+                    <div style="position:absolute;left:83.3%;top:-1px;height:7px;width:1.5px;background:rgba(0,0,0,.2);"></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:9px;color:${ciclosStatus.text};opacity:.6;margin-top:3px;">
+                    <span>0</span><span>1.5</span><span>2.5</span><span>3</span>
+                </div>
+                <div style="margin-top:8px;display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.5);padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;color:${ciclosStatus.text};">
+                    ${ciclosStatus.icon} ${ciclosStatus.label}
+                </div>
+            </div>
+
         </div>`;
 
     // Tabla de tickets con reproceso
