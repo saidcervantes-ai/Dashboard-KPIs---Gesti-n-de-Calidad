@@ -86,24 +86,28 @@ function parsearFechaAvanzada(fechaStr) {
 function calcularKPIsAvanzados(tickets, sprintActual = null) {
     console.log('[KPIs Avanzados] Calculando con', tickets.length, 'tickets');
     
-    // Para edad de tickets, mostrar Sprint 35 y 36
-    const sprintsAbiertos = ['35', '36'];
+    // Para edad de tickets, mostrar tickets arrastrados del Sprint 36 al 37
+    // (tickets que estaban en progreso y no se finalizaron en S36)
+    const sprintsAbiertos = ['36'];
     
-    // Filtrar sprints disponibles para KPIs de calidad
-    // Sprint 35 (anterior) y 36 (actual)
+    // KPIs de calidad: sprints cerrados acumulados (35 + 36)
     const sprintsCalidad = ['35', '36'];
     
-    // Lead Time siempre usa el último sprint cerrado (35).
-    // Sprint 36 está activo y no es representativo para esta métrica.
-    const SPRINT_LEAD_TIME = '35';
+    // Lead Time: sprints cerrados (mismo array que sprintsCalidad)
+    const SPRINTS_LEAD_TIME = ['35', '36'];
     
+    // Sprints para los nuevos KPIs (31–37, sin el masivo S30)
+    const sprintsVelocidad = ['31', '32', '33', '34', '35', '36', '37'];
+
     return {
-        leadTime: calcularLeadTime(tickets, SPRINT_LEAD_TIME),
-        sprintLeadTime: SPRINT_LEAD_TIME,
+        leadTimes: SPRINTS_LEAD_TIME.map(s => ({ sprint: s, data: calcularLeadTime(tickets, s) })),
         edadTickets: calcularEdadTickets(tickets, sprintsAbiertos),
         analisisErrores: calcularAnalisisErrores(tickets),
         cycleTime: calcularCycleTime(tickets, sprintsCalidad),
-        rework: calcularRework(tickets),
+        rework: calcularRework(tickets, sprintsCalidad),
+        cargaPersona: calcularCargaPersona(tickets, sprintsCalidad),
+        scopeCreep: calcularScopeCreep(tickets, sprintsVelocidad),
+        velocidad: calcularVelocidadSprint(tickets, sprintsVelocidad),
         sprintActual: sprintActual
     };
 }
@@ -302,6 +306,18 @@ function normalizarEstado(estado) {
 /**
  * Calcula días que un ticket pasó en cada estado usando changelog
  */
+/**
+ * Devuelve el estado actual real del ticket desde el changelog
+ * (la última transición cuyo fin === 'En curso', es decir el estado en el que está ahora)
+ */
+function obtenerEstadoActualDesdeChangelog(issueKey) {
+    if (typeof changelogData === 'undefined' || !changelogData[issueKey]) return null;
+    const historial = changelogData[issueKey];
+    // Buscar la transición que sigue activa (fin === 'En curso')
+    const activa = historial.find(t => t.fin === 'En curso');
+    return activa ? activa.estado : null;
+}
+
 function calcularDiasPorEstado(issueKey) {
     // Verificar si changelogData está disponible
     if (typeof changelogData === 'undefined') {
@@ -322,12 +338,17 @@ function calcularDiasPorEstado(issueKey) {
         diasPorEstado[estado] = 0;
     });
     
-    // Sumar días de cada transición
+    // Sumar días de cada transición - MANTENER VALORES DEL CHANGELOG TAL COMO ESTÁN
+    // Los valores de "dias" en el changelog son precisos y ya están calculados correctamente
     historial.forEach(transition => {
         const estadoNorm = normalizarEstado(transition.estado);
-        if (ESTADOS_TRACKING.includes(estadoNorm)) {
-            diasPorEstado[estadoNorm] += transition.dias || 0;
-        }
+        if (!ESTADOS_TRACKING.includes(estadoNorm)) return;
+
+        // Usar SIEMPRE el valor de "dias" del changelog
+        // NO recalcular desde "inicio" hacia "hoy", ya que el changelog tiene valores precisos
+        let dias = transition.dias || 0;
+
+        diasPorEstado[estadoNorm] += dias;
     });
     
     return diasPorEstado;
@@ -342,10 +363,13 @@ function calcularDiasPorEstado(issueKey) {
 function calcularEdadTickets(tickets, sprintsFilter = null) {
     console.log('[Edad Tickets] Calculando con changelog...');
     
-    // Filtrar solo tickets abiertos (NO finalizados)
-    let ticketsAbiertos = tickets.filter(t => 
-        t.estadoNormalizado !== 'Finalizados' && t.creada
-    );
+    // Filtrar solo tickets abiertos (NO finalizados, NO "Tareas por hacer")
+    const EXCLUIR_ESTADOS = ['finalizados', 'tareas por hacer', 'to do', 'backlog'];
+    let ticketsAbiertos = tickets.filter(t => {
+        const enNorm = (t.estadoNormalizado || '').toLowerCase().trim();
+        const enActual = (t.estado || '').toLowerCase().trim();
+        return !EXCLUIR_ESTADOS.includes(enNorm) && !EXCLUIR_ESTADOS.includes(enActual) && t.creada;
+    });
     
     // Filtrar por sprints si se especifica
     if (sprintsFilter && sprintsFilter.length > 0) {
@@ -358,8 +382,7 @@ function calcularEdadTickets(tickets, sprintsFilter = null) {
         console.log(`[Edad Tickets] Filtrado por sprints ${sprintsFilter.join(', ')}: ${ticketsAbiertos.length} tickets`);
     }
     
-    // NO filtrar por estado actual - el filtro se hace por si pasaron por estados de tracking en changelog
-    console.log('[Edad Tickets] Tickets abiertos para analizar:', ticketsAbiertos.length);
+    // Solo tickets activos en estados de tracking (Finalizados y Tareas por hacer excluidos arriba)
     console.log('[Edad Tickets] Tickets abiertos para analizar:', ticketsAbiertos.length);
     
     if (ticketsAbiertos.length === 0) {
@@ -395,20 +418,34 @@ function calcularEdadTickets(tickets, sprintsFilter = null) {
         // Calcular días totales en estados de tracking
         const diasEnTracking = Object.values(diasPorEstado).reduce((sum, dias) => sum + dias, 0);
         
+        // Obtener el estado actual real desde el changelog (no el normalizado "Arrastrado")
+        const estadoRealChangelog = obtenerEstadoActualDesdeChangelog(t.clave);
+        
         // Debug para primeros 3 tickets
         if (ticketsAbiertos.indexOf(t) < 3) {
-            console.log(`[Edad Tickets] Ticket ${t.clave}: diasEnTracking = ${diasEnTracking}`, diasPorEstado);
+            console.log(`[Edad Tickets] Ticket ${t.clave}: diasEnTracking = ${diasEnTracking}`, diasPorEstado, 'estado real:', estadoRealChangelog);
         }
         
+        // Si no hay tiempo en changelog (datos desactualizados), usar edad real como fallback
+        const diasEnTrackingFinal = diasEnTracking > 0
+            ? Math.round(diasEnTracking * 10) / 10
+            : Math.max(0, edadDias);
+
         return {
             ...t,
             edadDias: Math.max(0, edadDias),
             diasPorEstado: diasPorEstado,
-            diasEnTracking: Math.round(diasEnTracking)
+            diasEnTracking: diasEnTrackingFinal,
+            estadoActualReal: estadoRealChangelog || t.estado || t.estadoNormalizado,
+            sinDatosChangelog: diasEnTracking === 0  // flag para indicar que usamos fallback
         };
     })
-    .filter(t => t.diasEnTracking > 0) // Solo mostrar tickets que pasaron por estados de tracking
-    .sort((a, b) => b.diasEnTracking - a.diasEnTracking); // Ordenar por días en tracking DESC
+    .sort((a, b) => b.diasEnTracking - a.diasEnTracking) // Ordenar por días en tracking DESC
+    .filter(t => {
+        // Excluir tickets cuyo estado actual sea "Tareas por hacer" o "To do"
+        const estadoReal = (t.estadoActualReal || '').toLowerCase().trim();
+        return !['tareas por hacer', 'to do', 'backlog'].includes(estadoReal);
+    });
     
     console.log('[Edad Tickets] Tickets con días en tracking:', ticketsConInfo.length);
     console.log('[Edad Tickets] Tickets con días en tracking:', ticketsConInfo.length);
@@ -464,11 +501,15 @@ function calcularEdadTickets(tickets, sprintsFilter = null) {
 function calcularAnalisisErrores(tickets) {
     console.log('[Análisis Errores] Calculando...');
     
-    // FILTRO CRÍTICO: Solo tickets finalizados o en curso (NO "Tareas por hacer")
+    // FILTRO CRÍTICO: Solo tickets finalizados o en curso (NO "Tareas por hacer" ni "Arrastrado")
+    // "Arrastrado" se excluye porque esos tickets ya se cuentan en el sprint siguiente,
+    // incluirlos inflaría el denominador con Features de alto SP y diluiría el % de Bugs.
     const ticketsValidos = tickets.filter(t => {
         const estadoNorm = (t.estadoNormalizado || '').toLowerCase();
+        const estadoRaw  = (t.estado || '').toLowerCase();
         const excluirEstados = ['tareas por hacer', 'to do', 'backlog'];
-        return !excluirEstados.some(estado => estadoNorm.includes(estado));
+        return !excluirEstados.some(estado => estadoNorm.includes(estado))
+            && estadoRaw !== 'arrastrado';
     });
     
     console.log(`[Análisis Errores] Tickets totales: ${tickets.length}, Tickets válidos (sin "Por hacer"): ${ticketsValidos.length}`);
@@ -535,9 +576,9 @@ function calcularAnalisisErrores(tickets) {
             
             console.log(`[Sprint ${sprint}] Total: ${total}, Bugs: ${bugs.length}, Tasks: ${tasks.length}, Stories: ${stories.length}, Otros: ${otros.length}, % Bugs: ${porcentajeBugs}%`);
             
-            // Calcular Story Points para Sprint 35 (vista de esfuerzo)
+            // Calcular Story Points para todos los sprints (vista de esfuerzo)
             let spData = null;
-            if (sprintNum === '35') {
+            {
                 const getSP = (t) => parseFloat(t.storyPointEstimate) || 0;
                 const bugsSP    = bugs.reduce((sum, t) => sum + getSP(t), 0);
                 const tasksSP   = tasks.reduce((sum, t) => sum + getSP(t), 0);
@@ -545,17 +586,20 @@ function calcularAnalisisErrores(tickets) {
                 const otrosSP   = otros.reduce((sum, t) => sum + getSP(t), 0);
                 const totalSP   = bugsSP + tasksSP + storiesSP + otrosSP;
                 const funcSP    = tasksSP + storiesSP;
-                spData = {
-                    bugsSP, tasksSP, storiesSP, otrosSP, funcSP, totalSP,
-                    bugsPct:     totalSP > 0 ? ((bugsSP / totalSP) * 100).toFixed(1)     : '0.0',
-                    tasksPct:    totalSP > 0 ? ((tasksSP / totalSP) * 100).toFixed(1)    : '0.0',
-                    storiesPct:  totalSP > 0 ? ((storiesSP / totalSP) * 100).toFixed(1)  : '0.0',
-                    funcPct:     totalSP > 0 ? ((funcSP / totalSP) * 100).toFixed(1)     : '0.0',
-                    bugPercentSP: totalSP > 0 ? parseFloat(((bugsSP / totalSP) * 100).toFixed(1)) : 0,
-                    coverage:      ticketsReales.filter(t => getSP(t) > 0).length,
-                    coverageTotal: ticketsReales.length
-                };
-                console.log(`[Sprint 35 SP] Bugs: ${bugsSP}SP (${spData.bugsPct}%), Tasks: ${tasksSP}SP, Stories: ${storiesSP}SP, Total: ${totalSP}SP`);
+                // Solo mostrar spData si hay al menos un ticket con SP estimado
+                if (totalSP > 0) {
+                    spData = {
+                        bugsSP, tasksSP, storiesSP, otrosSP, funcSP, totalSP,
+                        bugsPct:     totalSP > 0 ? ((bugsSP / totalSP) * 100).toFixed(1)     : '0.0',
+                        tasksPct:    totalSP > 0 ? ((tasksSP / totalSP) * 100).toFixed(1)    : '0.0',
+                        storiesPct:  totalSP > 0 ? ((storiesSP / totalSP) * 100).toFixed(1)  : '0.0',
+                        funcPct:     totalSP > 0 ? ((funcSP / totalSP) * 100).toFixed(1)     : '0.0',
+                        bugPercentSP: totalSP > 0 ? parseFloat(((bugsSP / totalSP) * 100).toFixed(1)) : 0,
+                        coverage:      ticketsReales.filter(t => getSP(t) > 0).length,
+                        coverageTotal: ticketsReales.length
+                    };
+                    console.log(`[Sprint ${sprint} SP] Bugs: ${bugsSP}SP (${spData.bugsPct}%), Tasks: ${tasksSP}SP, Stories: ${storiesSP}SP, Total: ${totalSP}SP`);
+                }
             }
             
             return {
@@ -682,7 +726,7 @@ function extraerNumeroSprint(sprintStr) {
  * @param {Array} sprintsCalidad - Array de sprints a analizar (ej: ['30', '34'])
  * @returns {Object} Métricas de Cycle Time
  */
-function calcularCycleTime(tickets, sprintsCalidad = ['35', '36']) {
+function calcularCycleTime(tickets, sprintsCalidad = ['35', '36', '37']) {
     console.log('[Cycle Time] Calculando para sprints:', sprintsCalidad.join(', '));
 
     // Filtrar tickets de los sprints objetivo que estén finalizados
@@ -715,11 +759,54 @@ function calcularCycleTime(tickets, sprintsCalidad = ['35', '36']) {
     // Estados que NO cuentan como tiempo activo del ciclo
     const estadosIgnorar = new Set(['to do', 'tareas por hacer', 'done', 'finalizada', 'finalizados', 'finalizado']);
 
+    // Helpers locales: calcular minutos hábiles desde inicio/fin en changelog
+    const MINS_POR_DIA = 9 * 60; // 540
+    const MIN_CARRIL_MINS_S35_S36 = 30; // 0.5h
+
+    function parseFechaChangelog(fechaStr) {
+        if (!fechaStr || fechaStr === 'En curso') return null;
+        const [fecha, hora] = String(fechaStr).trim().split(' ');
+        if (!fecha || !hora) return null;
+        const [dd, mm, yyyy] = fecha.split('/').map(Number);
+        const [HH, MM] = hora.split(':').map(Number);
+        if (!dd || !mm || !yyyy) return null;
+        return new Date(yyyy, mm - 1, dd, HH || 0, MM || 0, 0);
+    }
+
+    function minutosHabiles(inicio, fin) {
+        if (!inicio || !fin || fin <= inicio) return 0;
+        let total = 0;
+        // iterar día por día (L-V 08:00–17:00)
+        let current = new Date(inicio.getTime());
+        while (current < fin) {
+            const dow = current.getDay(); // 0=Dom..6=Sab
+            if (dow >= 1 && dow <= 5) {
+                const y = current.getFullYear();
+                const m = current.getMonth();
+                const d = current.getDate();
+                const labInicio = new Date(y, m, d, 8, 0, 0);
+                const labFin = new Date(y, m, d, 17, 0, 0);
+                const desde = current > labInicio ? current : labInicio;
+                const hasta = fin < labFin ? fin : labFin;
+                if (hasta > desde) total += (hasta - desde) / 60000;
+            }
+            current = new Date(current.getFullYear(), current.getMonth(), current.getDate() + 1, 0, 0, 0);
+        }
+        return Math.max(0, Math.round(total));
+    }
+
+    function minutosCalendario(inicio, fin) {
+        if (!inicio || !fin || fin <= inicio) return 0;
+        return Math.max(0, Math.ceil((fin - inicio) / 60000));
+    }
+
     const ticketsConDetalle = ticketsFinalizados.map(t => {
         const historial = (typeof changelogData !== 'undefined') ? changelogData[t.clave] : null;
 
-        // Acumuladores por etapa
-        const etapas = {
+        const sprintNum = String(t.sprint || '').trim();
+        const aplicarMinimoCarril = (sprintNum === '35' || sprintNum === '36');
+
+        const etapasMins = {
             inProcess: 0,
             codeReview: 0,
             inTestDev: 0,
@@ -727,27 +814,68 @@ function calcularCycleTime(tickets, sprintsCalidad = ['35', '36']) {
             blocked: 0,
             testIssue: 0,
         };
-
-        let diasActivosTotal = 0;
+        // Registra qué etapas fueron realmente visitadas (aunque el tiempo sea 0)
+        // para aplicar el mínimo de 0.5h también en transiciones instantáneas/fuera de horario.
+        const etapasVisitadas = new Set();
 
         if (historial && historial.length > 0) {
             historial.forEach(entrada => {
                 const key = (entrada.estado || '').toLowerCase().trim();
                 if (estadosIgnorar.has(key)) return;
                 const etapa = estadoAEtapa[key];
-                const dias = parseFloat(entrada.dias) || 0;
-                if (etapa) {
-                    etapas[etapa] += dias;
-                    diasActivosTotal += dias;
+                if (!etapa) return;
+
+                etapasVisitadas.add(etapa); // marcar como visitada independientemente del tiempo
+
+                const ini = parseFechaChangelog(entrada.inicio);
+                const fin = parseFechaChangelog(entrada.fin);
+                let mins = 0;
+                if (ini && fin) {
+                    const minsHab = minutosHabiles(ini, fin);
+                    mins = minsHab;
+
+                    // Opción C (Sprint 35/36): si la transición fue fuera de horario hábil
+                    // pero duró ≤5h en tiempo real, usar el tiempo real.
+                    // Esto captura trabajo nocturno corto sin inflar estados largos de fin de semana.
+                    // Separado del umbral mínimo de 0.5h que aplica al final del bloque.
+                    if (aplicarMinimoCarril && minsHab === 0) {
+                        const minsReal = minutosCalendario(ini, fin);
+                        if (minsReal > 0 && minsReal <= 300) {
+                            mins = minsReal; // usar tiempo real (max 5h)
+                        }
+                    }
+                } else {
+                    // Fallback por si falta timestamp (no debería para estados intermedios)
+                    const dias = parseFloat(entrada.dias) || 0;
+                    mins = Math.round(dias * MINS_POR_DIA);
+                }
+                if (mins > 0) etapasMins[etapa] += mins;
+            });
+        }
+
+        // Umbral mínimo por carril SOLO para Sprint 35/36:
+        // Aplica si la etapa fue visitada (aunque el tiempo computado sea 0 por transición
+        // instantánea o fuera de horario >5h). Etapas no visitadas se quedan en 0h.
+        if (aplicarMinimoCarril) {
+            Object.keys(etapasMins).forEach(k => {
+                const v = etapasMins[k] || 0;
+                if (etapasVisitadas.has(k) && v < MIN_CARRIL_MINS_S35_S36) {
+                    etapasMins[k] = MIN_CARRIL_MINS_S35_S36;
                 }
             });
-            // Redondear a 1 decimal
-            Object.keys(etapas).forEach(k => {
-                etapas[k] = Math.round(etapas[k] * 10) / 10;
-            });
-        } else {
-            // Fallback: si no hay changelog, usar lead time y distribuir proporcionalmente
-            const creada   = parsearFechaAvanzada(t.creada);
+        }
+
+        const etapas = {};
+        let diasActivosTotal = 0;
+        Object.keys(etapasMins).forEach(k => {
+            const dias = (etapasMins[k] || 0) / MINS_POR_DIA;
+            etapas[k] = dias;
+            diasActivosTotal += dias;
+        });
+
+        // Fallback: si no hay changelog o todo quedó en 0, usar lead time calendario
+        if ((!historial || historial.length === 0) || diasActivosTotal === 0) {
+            const creada = parsearFechaAvanzada(t.creada);
             const resuelta = parsearFechaAvanzada(t.resuelta);
             diasActivosTotal = creada && resuelta
                 ? Math.max(0, Math.round((resuelta - creada) / (1000 * 60 * 60 * 24)))
@@ -759,7 +887,8 @@ function calcularCycleTime(tickets, sprintsCalidad = ['35', '36']) {
             resumen: t.resumen,
             sprint: t.sprint,
             prioridad: t.prioridad,
-            diasTotal: Math.round(diasActivosTotal * 10) / 10,
+            storyPoints: parseFloat(t.storyPointEstimate) || null,
+            diasTotal: diasActivosTotal,
             etapas,
         };
     });
@@ -782,49 +911,75 @@ function calcularCycleTime(tickets, sprintsCalidad = ['35', '36']) {
  * @param {Array} sprintsCalidad - Array de sprints a analizar
  * @returns {Object} Métricas de Rework
  */
-function calcularRework(tickets) {
-    // Solo Sprint 35
-    const SPRINT_REWORK = '35';
-    console.log('[Rework] Calculando para Sprint', SPRINT_REWORK, 'con changelog real');
+function calcularReworkPorSprint(tickets, sprint) {
+    const ESTADO_IN_TEST   = 'in test';
+    const ESTADO_TEST_ISSUES = 'test issues';
 
-    const ticketsSprint35 = tickets.filter(t => String(t.sprint || '').trim() === SPRINT_REWORK);
-    console.log('[Rework] Tickets Sprint 35:', ticketsSprint35.length);
+    // Rango de fechas por sprint (para asignar reprocesos al sprint correcto)
+    // Sprint 35: 16 Feb 2026 - 02 Mar 2026
+    // Sprint 36: 02 Mar 2026 - activo
+    const SPRINT_RANGES = {
+        '35': { start: new Date(2026, 1, 16, 0, 0, 0), end: new Date(2026, 2, 2, 0, 0, 0) },
+        '36': { start: new Date(2026, 2, 2, 0, 0, 0), end: null },
+    };
 
-    if (ticketsSprint35.length === 0 || typeof changelogData === 'undefined') {
-        return { totalAnalizado: 0, conRework: 0, porcentaje: 0, ciclosTotales: 0, detalle: [] };
+    function parseFechaChangelog(fechaStr) {
+        if (!fechaStr || fechaStr === 'En curso') return null;
+        // Formato esperado: dd/MM/yyyy HH:mm
+        const [fecha, hora] = String(fechaStr).trim().split(' ');
+        if (!fecha || !hora) return null;
+        const [dd, mm, yyyy] = fecha.split('/').map(Number);
+        const [HH, MM] = hora.split(':').map(Number);
+        if (!dd || !mm || !yyyy) return null;
+        return new Date(yyyy, mm - 1, dd, HH || 0, MM || 0, 0);
     }
 
-    const ESTADO_IN_TEST = 'in test';
-    const ESTADO_TEST_ISSUES = 'test issues';
+    function fechaEnSprint(fecha, sprintNum) {
+        if (!fecha) return false;
+        const r = SPRINT_RANGES[String(sprintNum)];
+        if (!r) return false;
+        if (r.end) return fecha >= r.start && fecha < r.end;
+        return fecha >= r.start;
+    }
+
+    // Solo tickets Finalizados del sprint (excluye En curso, Tareas por hacer, Arrastrado)
+    const ticketsSprint = tickets.filter(t =>
+        String(t.sprint || '').trim() === sprint && t.estadoNormalizado === 'Finalizados'
+    );
+    console.log('[Rework] Sprint', sprint, ':', ticketsSprint.length, 'tickets (solo Finalizados)');
+
+    if (ticketsSprint.length === 0 || typeof changelogData === 'undefined') {
+        return { sprint, totalAnalizado: 0, conRework: 0, porcentaje: 0, ciclosTotales: 0, detalle: [] };
+    }
 
     const detalle = [];
 
-    ticketsSprint35.forEach(ticket => {
+    ticketsSprint.forEach(ticket => {
         const historial = changelogData[ticket.clave];
         if (!historial || historial.length < 2) return;
 
         let ciclos = 0;
         const ciclosDetalle = [];
 
-        // Detectar cualquier transición In Test → Test Issues como reproceso.
-        // El estado posterior a Test Issues es informativo (puede ser Code Review,
-        // In Process, In Test de nuevo, Done, etc.) — lo que importa es que QA
-        // encontró un defecto y el ticket salió de In Test hacia Test Issues.
         for (let i = 0; i < historial.length - 1; i++) {
             const estadoActual = (historial[i].estado || '').toLowerCase().trim();
             const estadoSig    = (historial[i + 1].estado || '').toLowerCase().trim();
-            const estadoDespues = i + 2 < historial.length
-                ? historial[i + 2].estado
-                : null;
+            const estadoDespues = i + 2 < historial.length ? historial[i + 2].estado : null;
 
             if (estadoActual === ESTADO_IN_TEST && estadoSig === ESTADO_TEST_ISSUES) {
+                // Asignar el ciclo al sprint según la fecha en que entra a Test Issues
+                const fechaCiclo = parseFechaChangelog(historial[i + 1].inicio);
+                if (!fechaEnSprint(fechaCiclo, sprint)) {
+                    i += 1;
+                    continue;
+                }
                 ciclos++;
                 ciclosDetalle.push({
                     desde: historial[i].inicio,
                     testIssuesDias: historial[i + 1].dias,
                     vueltaA: estadoDespues || '—',
                 });
-                i += 1; // avanzar más allá del Test Issues ya procesado
+                i += 1;
             }
         }
 
@@ -841,19 +996,25 @@ function calcularRework(tickets) {
 
     const conRework = detalle.length;
     const ciclosTotales = detalle.reduce((s, t) => s + t.ciclos, 0);
-    const porcentaje = ticketsSprint35.length > 0
-        ? ((conRework / ticketsSprint35.length) * 100).toFixed(1)
+    const porcentaje = ticketsSprint.length > 0
+        ? ((conRework / ticketsSprint.length) * 100).toFixed(1)
         : '0.0';
 
-    console.log('[Rework] Tickets con rework:', conRework, '| Ciclos totales:', ciclosTotales);
+    console.log('[Rework] Sprint', sprint, '- con rework:', conRework, '| ciclos:', ciclosTotales);
 
     return {
-        totalAnalizado: ticketsSprint35.length,
+        sprint,
+        totalAnalizado: ticketsSprint.length,
         conRework,
         porcentaje: parseFloat(porcentaje),
         ciclosTotales,
         detalle,
     };
+}
+
+function calcularRework(tickets, sprintsCalidad) {
+    const sprints = sprintsCalidad || ['35', '36'];
+    return sprints.map(sp => calcularReworkPorSprint(tickets, sp));
 }
 
 // ==================== RENDERIZADO DE KPIS AVANZADOS ====================
@@ -887,11 +1048,12 @@ function renderKPIsAvanzados(kpis) {
             </button>
         </div>
         
-        ${renderLeadTimeSection(kpis.leadTime, kpis.sprintLeadTime)}
+        ${renderLeadTimeSection(kpis.leadTimes)}
         ${renderCycleTimeSection(kpis.cycleTime)}
         ${renderReworkSection(kpis.rework)}
         ${renderEdadTicketsSection(kpis.edadTickets)}
         ${renderAnalisisErroresSection(kpis.analisisErrores)}
+        ${renderCargaPersonaSection(kpis.cargaPersona)}
     `;
     
     container.innerHTML = html;
@@ -906,32 +1068,12 @@ function renderKPIsAvanzados(kpis) {
 
 // ==================== SECCIÓN LEAD TIME ====================
 
-function renderLeadTimeSection(leadTime, sprintActual) {
-    const subtituloSprint = sprintActual ? `Sprint ${sprintActual}` : 'Todos los Sprints';
-    
-    if (!leadTime || leadTime.total === 0) {
-        return `
-            <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
-                <div class="section-header-avanzado collapsible" onclick="toggleSection('leadtime-content')" 
-                     style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span class="collapse-icon" id="icon-leadtime-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
-                        <svg class="w-5 h-5" style="width: 20px; height: 20px; color: #8B5CF6;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Lead Time Analysis</h2>
-                    </div>
-                </div>
-                <div class="section-content-avanzado" id="leadtime-content" style="padding: 16px;">
-                    <p class="no-data">No hay suficientes datos de tickets finalizados para calcular Lead Time.</p>
-                </div>
-            </div>
-        `;
-    }
-    
+function renderLeadTimeSection(leadTimesArray) {
+    const items = Array.isArray(leadTimesArray) ? leadTimesArray : [leadTimesArray];
+
     return `
         <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
-            <div class="section-header-avanzado collapsible" onclick="toggleSection('leadtime-content')" 
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('leadtime-content')"
                  style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.3s ease;">
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <span class="collapse-icon" id="icon-leadtime-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
@@ -940,35 +1082,63 @@ function renderLeadTimeSection(leadTime, sprintActual) {
                     </svg>
                     <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Lead Time Analysis</h2>
                 </div>
-                <span style="background: #EEF2FF; color: #6366F1; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${leadTime.total} tickets</span>
             </div>
-            
+
             <div class="section-content-avanzado" id="leadtime-content">
-            <div class="kpi-cards-grid-3">
-                <div class="kpi-card-avanzado kpi-highlight">
-                    <div class="kpi-icon-circle" style="background: linear-gradient(135deg, #667EEA, #764BA2);">
-                        <i data-lucide="target"></i>
-                    </div>
-                    <div class="kpi-content-avanzado">
-                        <div class="kpi-label-avanzado">Lead Time Promedio</div>
-                        <div class="kpi-value-large">${leadTime.promedio} <span class="kpi-unit">días</span></div>
-                        <div class="kpi-meta">Tiempo creación → finalización</div>
-                        <div class="kpi-subtitle" style="margin-top: 8px; font-size: 0.85em; color: rgba(255,255,255,0.8); font-weight: 500;">${subtituloSprint}</div>
-                    </div>
-                </div>
-                
-                ${renderLeadTimePorPrioridad(leadTime.porPrioridad)}
-            </div>
-            
-            <div class="chart-container-avanzado">
-                <h3>Lead Time por Sprint</h3>
-                ${renderLeadTimeSprintChart(leadTime.porSprint)}
-            </div>
-            
-            <div class="chart-container-avanzado">
-                <h3>Distribución de Lead Time</h3>
-                ${renderLeadTimeDistribucionChart(leadTime.distribucion, leadTime.ticketsConLeadTime, sprintActual)}
-            </div>
+                ${items.map(({ sprint, data }) => {
+                    if (!data || data.total === 0) return `
+                        <div style="padding: 16px; color: #6B7280; font-size: 13px;">Sprint ${sprint}: Sin datos de tickets finalizados.</div>`;
+
+                    return `
+                        <div class="subsection" style="margin: 16px 16px 0; border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden;">
+                            <!-- Header desplegable por sprint -->
+                            <div class="collapsible" onclick="toggleSection('leadtime-sprint-${sprint}-content')"
+                                 style="background: linear-gradient(to right, #F3F4F6, #E5E7EB); padding: 12px 16px; cursor: pointer; display: flex; align-items: center; gap: 12px; transition: all 0.3s ease;">
+                                <span class="collapse-icon" id="icon-leadtime-sprint-${sprint}-content" style="color: #6B7280; font-size: 18px; transition: transform 0.3s ease;">▼</span>
+                                <svg style="width: 20px; height: 20px; color: #8B5CF6; flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                                </svg>
+                                <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Sprint ${sprint}</h3>
+                            </div>
+
+                            <!-- Contenido del sprint -->
+                            <div id="leadtime-sprint-${sprint}-content" class="section-content-avanzado" style="padding: 16px;">
+
+                                <!-- Tarjeta resumen sprint -->
+                                <div style="display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 14px 20px; margin-bottom: 16px;">
+                                    <svg style="width: 22px; height: 22px; flex-shrink: 0;" fill="none" stroke="white" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <div>
+                                        <div style="color: rgba(255,255,255,0.85); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;">Sprint ${sprint} Completado</div>
+                                        <div style="color: white; font-size: 22px; font-weight: 700; line-height: 1.2;">${data.total} <span style="font-size: 13px; font-weight: 400; opacity: 0.85;">tickets finalizados</span></div>
+                                    </div>
+                                    <div style="margin-left: auto; text-align: right;">
+                                        <div style="color: rgba(255,255,255,0.7); font-size: 10px;">Lead Time promedio</div>
+                                        <div style="color: white; font-size: 18px; font-weight: 700;">${data.promedio} días</div>
+                                    </div>
+                                </div>
+
+                                <!-- Prioridades -->
+                                <div class="kpi-cards-grid-3" style="margin-bottom: 16px;">
+                                    ${renderLeadTimePorPrioridad(data.porPrioridad)}
+                                </div>
+
+                                <!-- Gráfico por sprint (barras) -->
+                                <div class="chart-container-avanzado">
+                                    <h3>Lead Time por Sprint</h3>
+                                    ${renderLeadTimeSprintChart(data.porSprint)}
+                                </div>
+
+                                <!-- Distribución -->
+                                <div class="chart-container-avanzado">
+                                    <h3>Distribución de Lead Time</h3>
+                                    ${renderLeadTimeDistribucionChart(data.distribucion, data.ticketsConLeadTime, sprint)}
+                                </div>
+                            </div>
+                        </div>`;
+                }).join('')}
+                <div style="height: 16px;"></div>
             </div>
         </div>
     `;
@@ -1052,6 +1222,23 @@ function renderLeadTimeDistribucionChart(distribucion, ticketsConLeadTime, sprin
 
 // ==================== SECCIÓN EDAD DE TICKETS ====================
 
+/**
+ * Formatea días de tracking: si >= 1 día muestra "X.X días", si < 1 convierte a horas (8h = 1 día)
+ */
+function fmtTracking(dias) {
+    if (dias <= 0) return '-';
+    const HORAS_DIA = 8;
+    if (dias >= 1) {
+        const diasEnteros = Math.floor(dias);
+        const horasRest = Math.round((dias - diasEnteros) * HORAS_DIA);
+        if (horasRest <= 0) return `${diasEnteros}d`;
+        return `${diasEnteros}d ${horasRest}h`;
+    }
+    // Menos de 1 día → mostrar en horas (8h laborales = 1 día)
+    const horas = Math.round(dias * HORAS_DIA);
+    return horas <= 0 ? '<1h' : `${horas}h`;
+}
+
 function renderEdadTicketsSection(edadTickets) {
     if (!edadTickets || edadTickets.total === 0) {
         return `
@@ -1086,10 +1273,6 @@ function renderEdadTicketsSection(edadTickets) {
                     </svg>
                     <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Edad de Tickets Abiertos</h2>
                 </div>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <span style="background: #EEF2FF; color: #6366F1; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${edadTickets.total} tickets</span>
-                    <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${sprintsText}</span>
-                </div>
             </div>
             
             <div class="section-content-avanzado" id="edad-content">
@@ -1097,7 +1280,7 @@ function renderEdadTicketsSection(edadTickets) {
                     <div class="kpi-card-avanzado">
                         <div class="kpi-content-avanzado">
                             <div class="kpi-label-avanzado">Promedio en Tracking</div>
-                            <div class="kpi-value-medium">${edadTickets.promedio} <span class="kpi-unit">días</span></div>
+                            <div class="kpi-value-medium">${fmtTracking(parseFloat(edadTickets.promedio))}</div>
                         </div>
                     </div>
                     
@@ -1156,33 +1339,48 @@ function renderTicketsPorEstado(tickets, categoria, cssClass, estados) {
             </div>
             <div id="${uniqueId}" class="overflow-hidden">
                 <div class="overflow-x-auto p-5 pt-0">
-                    <table class="w-full border-collapse">
+                    <table class="w-full border-collapse" style="table-layout:fixed;width:100%;">
                         <thead>
                             <tr class="bg-gray-50 border-b border-gray-200">
-                                <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">Ticket</th>
-                                <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">Asignado</th>
-                                <th class="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">Total</th>
-                                ${estados.map(estado => `<th class="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">${estado.replace('CODE REVIEW', 'Code Review').replace('IN TEST DEV', 'Test in Dev')}</th>`).join('')}
-                                <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">Estado Actual</th>
+                                <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider" style="width:82px">Ticket</th>
+                                <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider" style="width:120px">Asignado</th>
+                                <th class="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider" style="width:62px">Total</th>
+                                <th class="text-center py-3 px-4 text-xs font-semibold text-indigo-700 uppercase tracking-wider" style="width:40px" title="Story Points estimados">SP</th>
+                                ${estados.map(estado => `<th class="text-center py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider" style="width:72px">${estado.replace('CODE REVIEW', 'Code Review').replace('IN TEST DEV', 'Test in Dev')}</th>`).join('')}
+                                <th class="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider" style="width:110px">Estado Actual</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             ${tickets.map(t => {
                                 const totalDias = t.diasEnTracking || 0;
                                 const rowClass = totalDias >= 15 ? 'bg-red-50 hover:bg-red-100' : totalDias >= 8 ? 'bg-yellow-50 hover:bg-yellow-100' : 'hover:bg-gray-50';
+                                // Mostrar solo primer nombre para mantener columna compacta
+                                const nombreCorto = (t.asignado || 'Sin asignar').split(' ')[0];
+                                const nombreCompleto = t.asignado || 'Sin asignar';
                                 
                                 return `
                                     <tr class="${rowClass} transition-colors duration-150">
-                                        <td class="py-3 px-4 font-semibold"><a href="#" onclick="mostrarDetalleTicket('${t.clave}', event); return false;" class="text-blue-600 hover:text-blue-800 no-underline cursor-pointer">${t.clave}</a></td>
-                                        <td class="py-3 px-4 text-gray-700">${t.asignado || 'Sin asignar'}</td>
-                                        <td class="py-3 px-4 text-center font-bold text-gray-900">${totalDias}</td>
+                                        <td class="py-3 px-4 font-semibold" style="overflow:hidden;white-space:nowrap;"><a href="#" onclick="mostrarDetalleTicket('${t.clave}', event); return false;" class="text-blue-600 hover:text-blue-800 no-underline cursor-pointer">${t.clave}</a></td>
+                                        <td class="py-3 px-4 text-gray-700" style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;" title="${nombreCompleto}">${nombreCompleto}</td>
+                                        <td class="py-3 px-4 text-center font-bold text-gray-900">${fmtTracking(totalDias)}</td>
+                                        ${(() => {
+                                            const sp = parseFloat(t.storyPointEstimate) || null;
+                                            if (sp == null) return `<td class="py-3 px-4 text-center text-gray-400 text-xs">—</td>`;
+                                            return `<td class="py-3 px-4 text-center"><span style="display:inline-block;padding:1px 7px;background:#EEF2FF;color:#4338CA;border-radius:4px;font-size:11px;font-weight:700;">${sp}</span></td>`;
+                                        })()} 
                                         ${estados.map(estado => {
                                             const dias = t.diasPorEstado[estado] || 0;
-                                            const diasRedondeados = Math.round(dias);
-                                            const cellClass = diasRedondeados > 0 ? 'bg-green-100 font-semibold text-green-800' : 'bg-gray-50 text-gray-400';
-                                            return `<td class="py-3 px-4 text-center ${cellClass}">${diasRedondeados > 0 ? diasRedondeados : '-'}</td>`;
+                                            const sp = parseFloat(t.storyPointEstimate) || null;
+                                            const isInProcess = estado === 'In Process';
+                                            const over = isInProcess && sp != null && dias >= 1 && (Math.round(dias * 10) / 10) > sp;
+                                            const label = fmtTracking(dias);
+                                            if (over) {
+                                                return `<td class="py-3 px-4 text-center" style="background:#FEF3C7;" title="In Process ${label} supera el estimado de ${sp} SP"><span style="font-weight:700;color:#B45309;">${label} ⚠</span></td>`;
+                                            }
+                                            const cellClass = dias > 0 ? 'bg-green-100 font-semibold text-green-800' : 'bg-gray-50 text-gray-400';
+                                            return `<td class="py-3 px-4 text-center ${cellClass}">${label}</td>`;
                                         }).join('')}
-                                        <td class="py-3 px-4"><span class="inline-block px-3 py-1 text-xs font-medium text-blue-800 bg-blue-100 rounded">${t.estado || t.estadoNormalizado}</span></td>
+                                        <td class="py-3 px-4"><span class="inline-block px-3 py-1 text-xs font-medium text-blue-800 bg-blue-100 rounded">${t.estadoActualReal || t.estado || t.estadoNormalizado}</span></td>
                                     </tr>
                                 `;
                             }).join('')}
@@ -1322,7 +1520,7 @@ function renderErroresSprintChart(sprints, mode) {
                 ${bugsSorted.length > 0 ? `
                 <div style="padding:0 0 4px 90px;">
                     <button onclick="(function(btn){
-                        var p=document.getElementById('bug-desglose-s35');
+                        var p=document.getElementById('bug-desglose-s${sprint.sprintNum}');
                         var open=p.style.display!=='none';
                         p.style.display=open?'none':'block';
                         btn.innerHTML=open?'▶ Ver desglose de bugs (${bugsSorted.length} tickets · ${sp.bugsSP}SP)':'▼ Ocultar desglose';
@@ -1331,7 +1529,7 @@ function renderErroresSprintChart(sprints, mode) {
                     onmouseover="this.style.color='#EF4444'" onmouseout="this.style.color='#9CA3AF'">
                         ▶ Ver desglose de bugs (${bugsSorted.length} tickets · ${sp.bugsSP}SP)
                     </button>
-                    <div id="bug-desglose-s35" style="display:none;margin-top:6px;padding:8px 12px;background:#FFFBFB;border:1px solid #FEE2E2;border-radius:6px;">
+                    <div id="bug-desglose-s${sprint.sprintNum}" style="display:none;margin-top:6px;padding:8px 12px;background:#FFFBFB;border:1px solid #FEE2E2;border-radius:6px;">
                         ${bugRows}
                     </div>
                 </div>
@@ -1379,7 +1577,7 @@ function renderErroresSprintChart(sprints, mode) {
         ? `<div class="chart-legend">
             <span class="legend-item"><span class="legend-color" style="background: #F44336;"></span> Bugs (SP)</span>
             <span class="legend-item"><span class="legend-color" style="background: #4CAF50;"></span> Tasks + Stories (SP)</span>
-            ${s35sp ? `<span style="font-size:10px;color:#6B7280;margin-left:14px;">Cobertura S35: ${s35sp.spData.coverage}/${s35sp.spData.coverageTotal} tickets con SP estimado</span>` : ''}
+            ${s35sp ? `<span style="font-size:10px;color:#6B7280;margin-left:14px;">Cobertura ${s35sp.sprint}: ${s35sp.spData.coverage}/${s35sp.spData.coverageTotal} tickets con SP estimado</span>` : ''}
            </div>`
         : `<div class="chart-legend">
             <span class="legend-item"><span class="legend-color" style="background: #F44336;"></span> Bugs</span>
@@ -1472,7 +1670,7 @@ function showSLEPopup(sprintKey, pType) {
     const { p50, p90, p95, tickets } = data;
     const SPRINT_DIAS = data.SPRINT_DIAS || 10;
 
-    let filtered, title, subtitle, accentColor;
+    let filtered, title, subtitle, accentColor, stageField = null;
     if (pType === 'p50') {
         filtered    = tickets.filter(t => (t.diasTotal||0) > 0 && (t.diasTotal||0) <= p50).sort((a,b) => a.diasTotal - b.diasTotal);
         title       = `Ticket típico · P50 — ≤ ${formatTime(p50)}`;
@@ -1513,6 +1711,21 @@ function showSLEPopup(sprintKey, pType) {
         title       = `Ciclo largo · > 10d — ${filtered.length} tickets`;
         subtitle    = `Tickets que superaron el sprint completo (> 10 días hábiles de ciclo activo).`;
         accentColor = '#EF4444';
+    } else if (pType.startsWith('stage_')) {
+        const stageMap = {
+            stage_inProcess:  { field:'inProcess',  label:'In Process',  color:'#243F6B', section:'Desarrollo' },
+            stage_codeReview: { field:'codeReview', label:'Code Review', color:'#4B71A1', section:'Desarrollo' },
+            stage_inTest:     { field:'inTest',     label:'In Test',     color:'#64748B', section:'Verificación y Control' },
+            stage_inTestDev:  { field:'inTestDev',  label:'Test Dev',    color:'#EF4444', section:'Impedimento' },
+            stage_blocked:    { field:'blocked',    label:'Blocked',     color:'#EF4444', section:'Impedimento' },
+            stage_testIssue:  { field:'testIssue',  label:'Test Issue',  color:'#EF4444', section:'Impedimento' },
+        };
+        const sm = stageMap[pType] || { field:'inProcess', label:pType, color:'#6B7280', section:'' };
+        stageField  = sm.field;
+        filtered    = tickets.filter(t => (t.etapas?.[sm.field]||0) > 0).sort((a,b) => (b.etapas?.[sm.field]||0) - (a.etapas?.[sm.field]||0));
+        title       = `${sm.label} · ${sm.section} — ${filtered.length} tickets`;
+        subtitle    = `Tickets con tiempo registrado en la etapa "${sm.label}", ordenados de mayor a menor.`;
+        accentColor = sm.color;
     } else {
         filtered    = tickets.filter(t => (t.diasTotal||0) > p90).sort((a,b) => b.diasTotal - a.diasTotal);
         title       = `Zona lenta — > ${formatTime(p90)}`;
@@ -1528,13 +1741,16 @@ function showSLEPopup(sprintKey, pType) {
              : '#9CA3AF';
     };
 
-    const rows = filtered.map(t => `
+    const rows = filtered.map(t => {
+        const timeVal = stageField ? (t.etapas?.[stageField] || 0) : t.diasTotal;
+        return `
         <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #F3F4F6;">
             <span style="font-size:11px;font-weight:700;color:#243F6B;min-width:85px;">${t.clave}</span>
             <span style="flex:1;font-size:11px;color:#374151;line-height:1.3;">${(t.resumen||'').substring(0,70)}${(t.resumen||'').length>70?'\u2026':''}</span>
             <span style="font-size:10px;font-weight:600;color:${prioColor(t.prioridad)};min-width:55px;text-align:center;">${t.prioridad||'\u2014'}</span>
-            <span style="font-size:12px;font-weight:700;color:#1F2937;min-width:55px;text-align:right;">${formatTime(t.diasTotal)}</span>
-        </div>`).join('');
+            <span style="font-size:12px;font-weight:700;color:#1F2937;min-width:55px;text-align:right;">${formatTime(timeVal)}</span>
+        </div>`;
+    }).join('');
 
     const existing = document.getElementById('sle-popup-overlay');
     if (existing) existing.remove();
@@ -2049,7 +2265,6 @@ function renderCycleTimeSection(cycleTime) {
                         </svg>
                         <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Tiempo de Ciclo (Cycle Time)</h2>
                     </div>
-                    <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">Sprints 35, 36 | Sin datos</span>
                 </div>
             </div>
         `;
@@ -2058,7 +2273,28 @@ function renderCycleTimeSection(cycleTime) {
     const colorClass = cycleTime.promedio <= 7 ? 'kpi-success' : 
                       cycleTime.promedio <= 15 ? 'kpi-warning' : 'kpi-danger';
     
-    // formatTime disponible globalmente (ver inicio del archivo)
+    // Formateador local para Cycle Time (permite incrementos de 0.5h)
+    function formatTimeCT(dias) {
+        if (!dias || dias === 0) return '0h';
+        const MINS_POR_DIA = 9 * 60; // 540
+        const totalMins = Math.round(dias * MINS_POR_DIA);
+        if (totalMins <= 0) return '0h';
+
+        // Redondear SIEMPRE hacia arriba a bloques de 30 minutos
+        const halfHours = Math.ceil(totalMins / 30);
+        const totalHoras = halfHours * 0.5;
+
+        if (totalHoras < 9) {
+            const h = Number.isInteger(totalHoras) ? String(totalHoras) : totalHoras.toFixed(1);
+            return `${h}h`;
+        }
+
+        const diasEnteros = Math.floor(totalHoras / 9);
+        const horasRestantes = totalHoras - (diasEnteros * 9);
+        if (horasRestantes === 0) return `${diasEnteros}d`;
+        const hr = Number.isInteger(horasRestantes) ? String(horasRestantes) : horasRestantes.toFixed(1);
+        return `${diasEnteros}d ${hr}h`;
+    }
     
     // Agrupar tickets por sprint
     const ticketsPorSprint = {};
@@ -2073,9 +2309,6 @@ function renderCycleTimeSection(cycleTime) {
     // Ordenar sprints
     const sprintsOrdenados = Object.keys(ticketsPorSprint).sort((a, b) => Number(a) - Number(b));
     
-    // Contar solo tickets del sprint 35
-    const ticketsSprint35 = cycleTime.ticketsDetalle.filter(t => t.sprint === '35').length;
-    
     return `
         <div class="kpi-section-avanzado" style="border: 1px solid #E5E7EB; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
             <div class="section-header-avanzado collapsible" onclick="toggleSection('cycletime-content')" 
@@ -2087,26 +2320,9 @@ function renderCycleTimeSection(cycleTime) {
                     </svg>
                     <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Tiempo de Ciclo (Cycle Time)</h2>
                 </div>
-                <span style="background: #FEF3C7; color: #D97706; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">Sprints 35, 36 | Pipeline de etapas por ticket</span>
             </div>
             
             <div id="cycletime-content" class="section-content-avanzado">
-                <!-- Solo Tickets Finalizados Sprint 35 -->
-                <div class="kpi-cards-container">
-                    <div class="kpi-card-avanzado" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
-                        <div class="kpi-content-avanzado" style="color: white;">
-                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                                <svg class="w-6 h-6" style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <div class="kpi-label-avanzado" style="color: rgba(255,255,255,0.9); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Sprint 35 Completado</div>
-                            </div>
-                            <div class="kpi-value-large" style="color: white; font-size: 36px; font-weight: bold;">${ticketsSprint35}</div>
-                            <div style="color: rgba(255,255,255,0.8); font-size: 11px; margin-top: 4px;">Tickets Finalizados</div>
-                        </div>
-                    </div>
-                </div>
-                
                 <!-- Pipeline por Sprint (Desplegables) -->
                 ${sprintsOrdenados.map(sprint => {
                     const tickets = ticketsPorSprint[sprint];
@@ -2137,10 +2353,10 @@ function renderCycleTimeSection(cycleTime) {
                 const sumInTest     = tickets.reduce((s, t) => s + (t.etapas.inTest     || 0), 0);
                 const sumBlocked    = tickets.reduce((s, t) => s + (t.etapas.blocked    || 0), 0);
                 const sumTestIssue  = tickets.reduce((s, t) => s + (t.etapas.testIssue  || 0), 0);
-                const totalTouchTime   = sumInProcess + sumCodeReview + sumInTestDev + sumInTest;
+                const totalTouchTime   = sumInProcess + sumCodeReview + sumInTest;
                 const totalLeadTime    = tickets.reduce((s, t) => s + (t.diasTotal || 0), 0);
                 const activeAvg        = totalTouchTime / tickets.length;   // for bar widths only
-                const waitingAvg       = (sumBlocked + sumTestIssue) / tickets.length;
+                const waitingAvg       = (sumInTestDev + sumBlocked + sumTestIssue) / tickets.length;
                 const flowEff          = totalLeadTime > 0 ? Math.round((totalTouchTime / totalLeadTime) * 100) : 0;
                 const waitEff    = 100 - flowEff;
                 // Benchmarks Lean para Touch Time inclusivo (4 etapas activas)
@@ -2152,7 +2368,7 @@ function renderCycleTimeSection(cycleTime) {
                     ? 'El equipo pasa la mayor parte del tiempo en trabajo activo (desarrollo + QA) — rendimiento Lean elite.'
                     : flowEff >= 30
                     ? 'Entre 30-60% de Touch Time es el rango típico de equipos Agile/Kanban maduros.'
-                    : 'Menos del 30% de Touch Time: los impedimentos (Blocked / Test Issues) están consumiendo el flujo.';
+                    : 'Menos del 30% de Touch Time: los impedimentos (Test Dev / Blocked / Test Issues) están consumiendo el flujo.';
 
                 // ── Percentiles SLE ──────────────────────────────────────
                 const SPRINT_DIAS    = 10; // días hábiles de un sprint de 2 semanas
@@ -2177,7 +2393,9 @@ function renderCycleTimeSection(cycleTime) {
                     p50, p90, p95, n, sortedDias: [...sortedDias],
                     tickets: tickets.map(t => ({
                         clave: t.clave, resumen: t.resumen,
-                        diasTotal: t.diasTotal, prioridad: t.prioridad
+                        diasTotal: t.diasTotal, prioridad: t.prioridad,
+                        storyPoints: t.storyPoints,
+                        etapas: t.etapas || {}
                     })),
                     nSinTiempo, nCicloLargo, SPRINT_DIAS
                 };
@@ -2211,14 +2429,25 @@ function renderCycleTimeSection(cycleTime) {
                                     </svg>
                                     <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #1F2937;">Sprint ${sprint}</h3>
                                 </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="background: #EEF2FF; color: #6366F1; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${tickets.length} tickets</span>
-                                    <span style="background: #D1FAE5; color: #065F46; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">⌀ ${formatTime(avgTotal)}</span>
-                                </div>
                             </div>
                             
                             <!-- Contenido desplegable -->
                             <div id="sprint-${sprint}-content" class="section-content-avanzado" style="padding: 16px;">
+
+                                <!-- Tickets Finalizados del Sprint -->
+                                <div style="display: flex; align-items: center; gap: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 14px 20px; margin-bottom: 16px;">
+                                    <svg style="width: 22px; height: 22px; flex-shrink: 0;" fill="none" stroke="white" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <div>
+                                        <div style="color: rgba(255,255,255,0.85); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;">Sprint ${sprint} Completado</div>
+                                        <div style="color: white; font-size: 22px; font-weight: 700; line-height: 1.2;">${tickets.length} <span style="font-size: 13px; font-weight: 400; opacity: 0.85;">tickets finalizados</span></div>
+                                    </div>
+                                    <div style="margin-left: auto; text-align: right;">
+                                        <div style="color: rgba(255,255,255,0.7); font-size: 10px;">Cycle Time promedio</div>
+                                        <div style="color: white; font-size: 18px; font-weight: 700;">${formatTimeCT(avgTotal)}</div>
+                                    </div>
+                                </div>
 
                                 <!-- Promedio por etapa -->
                                 <div style="margin-bottom: 20px; background: #FFFFFF; border-radius: 8px; border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.06); overflow: hidden;">
@@ -2239,7 +2468,7 @@ function renderCycleTimeSection(cycleTime) {
                                         <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; border-right: 1px solid #F3F4F6; gap: 6px;">
                                             <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
                                             <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">In Process</div>
-                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgInProcess)}</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTimeCT(avgInProcess)}</div>
                                         </div>
 
                                         <div style="display: flex; align-items: center; padding: 0 2px; color: #D1D5DB; font-size: 13px;">›</div>
@@ -2248,7 +2477,7 @@ function renderCycleTimeSection(cycleTime) {
                                         <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; border-right: 1px solid #F3F4F6; gap: 6px;">
                                             <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
                                             <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Code Review</div>
-                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgCodeReview)}</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTimeCT(avgCodeReview)}</div>
                                         </div>
 
                                         <div style="display: flex; align-items: center; padding: 0 2px; color: #D1D5DB; font-size: 13px;">›</div>
@@ -2257,7 +2486,7 @@ function renderCycleTimeSection(cycleTime) {
                                         <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; border-right: 1px solid #F3F4F6; gap: 6px;">
                                             <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
                                             <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Test Dev</div>
-                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgInTestDev)}</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTimeCT(avgInTestDev)}</div>
                                         </div>
 
                                         <div style="display: flex; align-items: center; padding: 0 2px; color: #D1D5DB; font-size: 13px;">›</div>
@@ -2266,7 +2495,7 @@ function renderCycleTimeSection(cycleTime) {
                                         <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; ${hasBlocked || hasTestIssue ? 'border-right: 1px solid #F3F4F6;' : ''} gap: 6px;">
                                             <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
                                             <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">In Test</div>
-                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgInTest)}</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTimeCT(avgInTest)}</div>
                                         </div>
 
                                         ${hasBlocked ? `
@@ -2275,7 +2504,7 @@ function renderCycleTimeSection(cycleTime) {
                                         <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; ${hasTestIssue ? 'border-right: 1px solid #F3F4F6;' : ''} gap: 6px;">
                                             <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
                                             <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Blocked</div>
-                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgBlocked)}</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTimeCT(avgBlocked)}</div>
                                         </div>
                                         ` : ''}
 
@@ -2285,7 +2514,7 @@ function renderCycleTimeSection(cycleTime) {
                                         <div style="flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 8px; gap: 6px;">
                                             <div style="width: 28px; height: 3px; border-radius: 2px; background: #4B71A1;"></div>
                                             <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Test Issue</div>
-                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTime(avgTestIssue)}</div>
+                                            <div style="font-size: 17px; font-weight: 700; color: #4B71A1; letter-spacing: -0.3px;">${formatTimeCT(avgTestIssue)}</div>
                                         </div>
                                         ` : ''}
 
@@ -2296,7 +2525,7 @@ function renderCycleTimeSection(cycleTime) {
                                         <div style="min-width: 90px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14px 14px; background: #F8FAFF; gap: 6px;">
                                             <div style="width: 28px; height: 3px; border-radius: 2px; background: #243F6B;"></div>
                                             <div style="font-size: 9px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: center;">Promedio</div>
-                                            <div style="font-size: 18px; font-weight: 700; color: #243F6B; letter-spacing: -0.5px;">${formatTime(avgTotal)}</div>
+                                            <div style="font-size: 18px; font-weight: 700; color: #243F6B; letter-spacing: -0.5px;">${formatTimeCT(avgTotal)}</div>
                                         </div>
                                     </div>
                                 </div>
@@ -2349,16 +2578,16 @@ function renderCycleTimeSection(cycleTime) {
                                                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#243F6B;"></span> Desarrollo
                                             </div>
                                             ${[
-                                                { label:'In Process',  val: avgInProcess,  pct: totalLeadTime > 0 ? Math.round((sumInProcess  / totalLeadTime)*100) : 0 },
-                                                { label:'Code Review', val: avgCodeReview, pct: totalLeadTime > 0 ? Math.round((sumCodeReview / totalLeadTime)*100) : 0 }
+                                                { label:'In Process',  val: avgInProcess,  pct: totalLeadTime > 0 ? Math.round((sumInProcess  / totalLeadTime)*100) : 0, key:'stage_inProcess'  },
+                                                { label:'Code Review', val: avgCodeReview, pct: totalLeadTime > 0 ? Math.round((sumCodeReview / totalLeadTime)*100) : 0, key:'stage_codeReview' }
                                             ].map(e => {
                                                 const pctDisplay = (e.pct === 0 && (e.val||0) > 0) ? '<1%' : `${e.pct}%`;
                                                 return `
-                                                <div style="margin-bottom:7px;">
+                                                <div onclick="showSLEPopup('s${sprint}','${e.key}')" style="margin-bottom:7px;cursor:pointer;padding:4px 6px;border-radius:5px;transition:background 0.15s;" onmouseover="this.style.background='#F1F5F9'" onmouseout="this.style.background='transparent'">
                                                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
                                                         <span style="font-size:11px;color:#374151;">${e.label}</span>
                                                         <div style="display:flex;align-items:center;gap:6px;">
-                                                            <span style="font-size:11px;font-weight:600;color:#374151;">${formatTime(e.val)}</span>
+                                                            <span style="font-size:11px;font-weight:600;color:#374151;">${formatTimeCT(e.val)}</span>
                                                             <span style="font-size:10px;color:#243F6B;font-weight:700;width:32px;text-align:right;">${pctDisplay}</span>
                                                         </div>
                                                     </div>
@@ -2373,16 +2602,15 @@ function renderCycleTimeSection(cycleTime) {
                                                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748B;"></span> Verificación y Control
                                             </div>
                                             ${[
-                                                { label:'Test Dev', val: avgInTestDev, pct: totalLeadTime > 0 ? Math.round((sumInTestDev / totalLeadTime)*100) : 0 },
-                                                { label:'In Test',  val: avgInTest,    pct: totalLeadTime > 0 ? Math.round((sumInTest    / totalLeadTime)*100) : 0 }
+                                                { label:'In Test',  val: avgInTest,    pct: totalLeadTime > 0 ? Math.round((sumInTest    / totalLeadTime)*100) : 0, key:'stage_inTest' }
                                             ].map(e => {
                                                 const pctDisplay = (e.pct === 0 && (e.val||0) > 0) ? '<1%' : `${e.pct}%`;
                                                 return `
-                                                <div style="margin-bottom:7px;">
+                                                <div onclick="showSLEPopup('s${sprint}','${e.key}')" style="margin-bottom:7px;cursor:pointer;padding:4px 6px;border-radius:5px;transition:background 0.15s;" onmouseover="this.style.background='#F1F5F9'" onmouseout="this.style.background='transparent'">
                                                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
                                                         <span style="font-size:11px;color:#374151;">${e.label}</span>
                                                         <div style="display:flex;align-items:center;gap:6px;">
-                                                            <span style="font-size:11px;font-weight:600;color:#374151;">${formatTime(e.val)}</span>
+                                                            <span style="font-size:11px;font-weight:600;color:#374151;">${formatTimeCT(e.val)}</span>
                                                             <span style="font-size:10px;color:#64748B;font-weight:700;width:32px;text-align:right;">${pctDisplay}</span>
                                                         </div>
                                                     </div>
@@ -2393,21 +2621,22 @@ function renderCycleTimeSection(cycleTime) {
                                             }).join('')}
 
                                             <!-- Sección 3 — IMPEDIMENTOS (solo si hay) -->
-                                            ${(avgBlocked > 0 || avgTestIssue > 0) ? `
+                                            ${(avgInTestDev > 0 || avgBlocked > 0 || avgTestIssue > 0) ? `
                                             <div style="font-size:9px;font-weight:700;color:#991B1B;text-transform:uppercase;letter-spacing:0.6px;margin:10px 0 6px;display:flex;align-items:center;gap:5px;">
                                                 <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#EF4444;"></span> Impedimentos
                                             </div>
                                             ${[
-                                                { label:'Blocked',    val: avgBlocked,   pct: totalLeadTime > 0 ? Math.round((sumBlocked   / totalLeadTime)*100) : 0 },
-                                                { label:'Test Issue', val: avgTestIssue, pct: totalLeadTime > 0 ? Math.round((sumTestIssue / totalLeadTime)*100) : 0 }
+                                                { label:'Test Dev',   val: avgInTestDev, pct: totalLeadTime > 0 ? Math.round((sumInTestDev / totalLeadTime)*100) : 0, key:'stage_inTestDev'  },
+                                                { label:'Blocked',    val: avgBlocked,   pct: totalLeadTime > 0 ? Math.round((sumBlocked   / totalLeadTime)*100) : 0, key:'stage_blocked'   },
+                                                { label:'Test Issue', val: avgTestIssue, pct: totalLeadTime > 0 ? Math.round((sumTestIssue / totalLeadTime)*100) : 0, key:'stage_testIssue' }
                                             ].filter(e => e.val > 0).map(e => {
                                                 const pctDisplay = (e.pct === 0 && (e.val||0) > 0) ? '<1%' : `${e.pct}%`;
                                                 return `
-                                                <div style="margin-bottom:7px;">
+                                                <div onclick="showSLEPopup('s${sprint}','${e.key}')" style="margin-bottom:7px;cursor:pointer;padding:4px 6px;border-radius:5px;transition:background 0.15s;" onmouseover="this.style.background='#FEF2F2'" onmouseout="this.style.background='transparent'">
                                                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
                                                         <span style="font-size:11px;color:#374151;">${e.label}</span>
                                                         <div style="display:flex;align-items:center;gap:6px;">
-                                                            <span style="font-size:11px;font-weight:600;color:#374151;">${formatTime(e.val)}</span>
+                                                            <span style="font-size:11px;font-weight:600;color:#374151;">${formatTimeCT(e.val)}</span>
                                                             <span style="font-size:10px;color:#EF4444;font-weight:700;width:32px;text-align:right;">${pctDisplay}</span>
                                                         </div>
                                                     </div>
@@ -2530,6 +2759,7 @@ function renderCycleTimeSection(cycleTime) {
                                                 <div style="display: flex; align-items: center; gap: 8px;">
                                                     <strong style="font-size: 13px; color: #111827; font-weight: 600;">${ticket.clave}</strong>
                                                     <span style="padding: 2px 8px; background: ${ticket.prioridad === 'High' || ticket.prioridad === 'Highest' ? '#FEE2E2' : '#F3F4F6'}; color: ${ticket.prioridad === 'High' || ticket.prioridad === 'Highest' ? '#B91C1C' : '#4B5563'}; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${ticket.prioridad}</span>
+                                                    ${ticket.storyPoints != null ? `<span title="Story Points estimados" style="padding: 2px 7px; background: #EEF2FF; color: #4338CA; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.3px;">SP&thinsp;${ticket.storyPoints}</span>` : ''}
                                                 </div>
                                                 <div style="display: flex; align-items: center; gap: 6px;">
                                                     <svg class="w-4 h-4" style="width: 16px; height: 16px; color: #10B981;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2545,10 +2775,16 @@ function renderCycleTimeSection(cycleTime) {
                                             <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 10px; background: linear-gradient(to bottom, #F9FAFB, #F3F4F6); border-radius: 6px; border: 1px solid #E5E7EB;">
                                                 
                                                 <!-- In Process -->
-                                                <div style="text-align: center; flex: 1;">
-                                                    <div style="font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600;">In Process</div>
-                                                    <div style="font-size: 14px; font-weight: 700; color: ${(ticket.etapas.inProcess||0) > 0 ? '#06B6D4' : '#D1D5DB'};">${formatTime(ticket.etapas.inProcess)}</div>
-                                                </div>
+                                                ${(() => {
+                                                    const ip = ticket.etapas.inProcess || 0;
+                                                    const sp = ticket.storyPoints;
+                                                    const over = sp != null && ip > sp;
+                                                    return `<div style="text-align:center;flex:1;border-radius:5px;padding:4px 2px;${over ? 'background:#FEF3C7;border:1px solid #FDE68A;' : ''}" ${over ? `title="In Process ${formatTime(ip)} supera el estimado de ${sp} SP"` : ''}>
+                                                        <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;font-weight:600;color:${over ? '#92400E' : '#6B7280'};">In Process${over ? ' ⚠' : ''}</div>
+                                                        <div style="font-size:14px;font-weight:700;color:${ip > 0 ? (over ? '#B45309' : '#06B6D4') : '#D1D5DB'};">${formatTime(ip)}</div>
+                                                        ${over ? `<div style="font-size:8px;color:#D97706;margin-top:2px;">est. ${sp}sp</div>` : ''}
+                                                    </div>`;
+                                                })()}
 
                                                 ${[
                                                     { label:'Blocked',     val: ticket.etapas.blocked,    color:'#8B5CF6' },
@@ -2606,7 +2842,8 @@ function renderCycleTimeSection(cycleTime) {
 /**
  * Renderiza la sección de Rework (Reprocesos)
  */
-function renderReworkSection(rework) {
+function renderReworkOneSprint(rework) {
+    // Renders the cards + table for a single sprint rework object
     // Colores por prioridad
     const PRIO_COLOR = {
         Highest: { bg: '#FEE2E2', text: '#991B1B', dot: '#EF4444' },
@@ -2619,28 +2856,11 @@ function renderReworkSection(rework) {
         return `<span style="background:${c.bg};color:${c.text};padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;gap:4px;"><span style="width:6px;height:6px;border-radius:50%;background:${c.dot};display:inline-block;"></span>${p}</span>`;
     };
 
-    // Header común
-    const header = (extraBadge = '') => `
-        <div class="section-header-avanzado collapsible" onclick="toggleSection('rework-content')"
-             style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:all 0.3s ease;">
-            <div style="display:flex;align-items:center;gap:12px;">
-                <span class="collapse-icon" id="icon-rework-content" style="color:#6B7280;font-size:18px;transition:transform 0.3s ease;">▼</span>
-                <svg style="width:20px;height:20px;color:#F97316;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-                <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Reprocesos (Rework)</h2>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-                <span style="background:#EEF2FF;color:#4F46E5;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">Sprint 35</span>
-                ${extraBadge}
-            </div>
-        </div>`;
+    // Sprint label badge
+    const sprintBadge = `<span style="background:#EEF2FF;color:#4F46E5;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">Sprint ${rework.sprint}</span>`;
 
     if (!rework || rework.totalAnalizado === 0) {
-        return `
-            <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
-                ${header('<span style="background:#FEF3C7;color:#D97706;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">Sin datos</span>')}
-            </div>`;
+        return `<div style="padding:16px;text-align:center;color:#6B7280;font-size:12px;">Sin datos para Sprint ${rework.sprint}</div>`;
     }
 
     // Umbrales basados en DORA Metrics + Lean/Agile
@@ -2683,6 +2903,24 @@ function renderReworkSection(rework) {
     const badgeStatus = rework.conRework === 0
         ? '<span style="background:#D1FAE5;color:#065F46;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">✓ Sin reprocesos</span>'
         : `<span style="background:${pctStatus.bg};color:${pctStatus.text};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">${rework.conRework} con reproceso</span>`;
+    void badgeStatus; // used in sub-panel header below
+
+    // Sub-panel header — collapsible per sprint
+    const subId = `rework-sprint-${rework.sprint}`;
+    const subHeader = `
+        <div onclick="toggleSection('${subId}')"
+             style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;
+                    background:linear-gradient(to right,#F8FAFC,#F1F5F9);
+                    border-bottom:1px solid #E2E8F0;border-radius:8px 8px 0 0;
+                    cursor:pointer;user-select:none;"
+             title="Clic para colapsar/expandir">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span class="collapse-icon" id="icon-${subId}" style="color:#6B7280;font-size:14px;transition:transform 0.3s ease;">▼</span>
+                ${sprintBadge}
+                <span style="font-size:12px;font-weight:600;color:#374151;">Sprint ${rework.sprint}</span>
+            </div>
+            <div>${badgeStatus}</div>
+        </div>`;
 
     // Flujo visual
     const flujoHtml = `
@@ -2703,14 +2941,14 @@ function renderReworkSection(rework) {
             <div style="background:white;border:1px solid #E5E7EB;border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
                 <div style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Tickets analizados</div>
                 <div style="font-size:32px;font-weight:800;color:#1F2937;line-height:1;">${rework.totalAnalizado}</div>
-                <div style="font-size:10px;color:#9CA3AF;margin-top:4px;">Sprint 35 · Todos los estados</div>
+                <div style="font-size:10px;color:#9CA3AF;margin-top:4px;">Sprint ${rework.sprint} · Solo finalizados</div>
             </div>
 
             <!-- % con reproceso + umbral DORA -->
             <div style="background:${pctStatus.bg};border:1px solid ${pctStatus.ring};border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
                 <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:6px;">
                     <span style="font-size:11px;color:${pctStatus.text};font-weight:600;text-transform:uppercase;letter-spacing:.5px;">% con reproceso</span>
-                    ${tooltip('rework-pct',
+                    ${tooltip('rework-pct-'+rework.sprint,
                         '<strong style="color:#93C5FD;">DORA · Change Failure Rate</strong><br>' +
                         'Porcentaje de tickets que requirieron retrabajo (regresaron de QA a Dev).<br><br>' +
                         '<span style="color:#86EFAC;">✓ Bueno</span> ≤ 5% · Equipos maduros con DoD sólido<br>' +
@@ -2750,7 +2988,7 @@ function renderReworkSection(rework) {
             <div style="background:${ciclosStatus.bg};border:1px solid ${ciclosStatus.ring};border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);">
                 <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:6px;">
                     <span style="font-size:11px;color:${ciclosStatus.text};font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Ciclos / ticket</span>
-                    ${tooltip('rework-ciclos',
+                    ${tooltip('rework-ciclos-'+rework.sprint,
                         '<strong style="color:#93C5FD;">Lean · Rework Rate per Item</strong><br>' +
                         'Promedio de veces que un ticket con reproceso rebotó entre QA y Dev. Un valor alto indica defectos recurrentes o criterios de aceptación poco claros.<br><br>' +
                         '<span style="color:#86EFAC;">✓ Bueno</span> ≤ 1.5 ciclos/ticket<br>' +
@@ -2820,9 +3058,9 @@ function renderReworkSection(rework) {
            </div>`;
 
     return `
-        <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
-            ${header(badgeStatus)}
-            <div id="rework-content" class="section-content-avanzado" style="padding:16px;">
+        <div style="border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;margin-bottom:12px;">
+            ${subHeader}
+            <div id="${subId}" class="section-content-avanzado" style="padding:14px;">
                 ${flujoHtml}
                 ${cards}
                 <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:10px;">
@@ -2833,6 +3071,775 @@ function renderReworkSection(rework) {
             </div>
         </div>`;
 }
+
+function renderReworkSection(reworkArray) {
+    // reworkArray: array of per-sprint rework objects
+    const items = Array.isArray(reworkArray) ? reworkArray : [reworkArray];
+    const totalConRework = items.reduce((s, r) => s + (r.conRework || 0), 0);
+
+    const badgeHeader = totalConRework === 0
+        ? '<span style="background:#D1FAE5;color:#065F46;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">✓ Sin reprocesos</span>'
+        : `<span style="background:#FEE2E2;color:#991B1B;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">${totalConRework} con reproceso</span>`;
+
+    const sprintLabels = items.map(r => `Sprint ${r.sprint}`).join(' · ');
+
+    return `
+        <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('rework-content')"
+                 style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:all 0.3s ease;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <span class="collapse-icon" id="icon-rework-content" style="color:#6B7280;font-size:18px;transition:transform 0.3s ease;">▼</span>
+                    <svg style="width:20px;height:20px;color:#F97316;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Reprocesos (Rework)</h2>
+                </div>
+            </div>
+            <div id="rework-content" class="section-content-avanzado" style="padding:16px;">
+                ${items.map(r => renderReworkOneSprint(r)).join('')}
+            </div>
+        </div>`;
+}
+
+
+// ============================================================================
+// KPI: CARGA Y CALIDAD POR PERSONA
+// ============================================================================
+
+/**
+ * Calcula la distribución de carga de trabajo y calidad individual por miembro.
+ * Incluye tickets por tipo, esfuerzo estimado (SP) y regresiones QA→Test Issues.
+ */
+/**
+ * Calcula carga por persona para UN sprint específico.
+ * spEstimado = storyPointEstimate (planificado en el planning)
+ * spReal     = suma de días en estado 'In Process' + 'Test Issues' del changelog (esfuerzo activo del desarrollador)
+ */
+function _calcularCargaPersonaSprint(tickets, sprint, clData) {
+    const ef = tickets.filter(t => String(t.sprint) === String(sprint) && t.estado !== 'Arrastrado');
+    const personas = {};
+
+    ef.forEach(t => {
+        const p = t.asignado || 'Sin asignar';
+        if (!personas[p]) personas[p] = {
+            errores: 0, tareas: 0, historias: 0, total: 0,
+            spEstimado: 0, spReal: 0,
+            spEstBugs: 0, spEstTareas: 0, spEstHistorias: 0,
+            spRealBugs: 0, spRealTareas: 0, spRealHistorias: 0,
+            testIssues: 0,
+            capacidadComp: 0,
+            tkAll: [], tkBugs: [], tkTareas: [], tkHistorias: [], tkTI: [], tkCompromiso: []
+        };
+        const spEst  = parseFloat(t.storyPointEstimate) || 0;
+        // Días activos: QA → 'In Test' + 'Test Issues'; Dev → 'In Process' + 'Test Issues'
+        const QA_MEMBERS = new Set(['Said Cervantes Correa']);
+        const isQA = QA_MEMBERS.has(p);
+        const hist = clData[t.clave];
+        let spReal = 0;
+        if (hist && Array.isArray(hist)) {
+            const activeStates = hist.filter(h =>
+                isQA
+                    ? (h.estado === 'In Test' || h.estado === 'Test Issues')
+                    : (h.estado === 'In Process' || h.estado === 'Test Issues')
+            );
+            const totalDays = activeStates.reduce((sum, h) => sum + (parseFloat(h.dias) || 0), 0);
+            // Si pasó por el estado activo pero duró < 0.5 días, asignar 0.5 (medio día mínimo)
+            spReal = activeStates.length > 0 && totalDays === 0 ? 0.5 : parseFloat(totalDays.toFixed(1));
+        }
+        const tipo = (t.tipoIncidencia || '').toLowerCase();
+        const d = personas[p];
+        const tkEntry = { c: t.clave, r: (t.resumen || '').slice(0, 80), t: t.tipoIncidencia || '', se: spEst, sr: spReal, e: t.estadoNormalizado || t.estado || '' };
+        
+        // Calcular capacidad comprometida (SP estimado de TODOS los tickets del sprint)
+        d.capacidadComp += spEst;
+        d.tkCompromiso.push(tkEntry);
+        
+        d.total++;
+        d.spEstimado += spEst;
+        d.spReal     += spReal;
+        d.tkAll.push(tkEntry);
+        if (tipo.includes('error') || tipo.includes('bug')) {
+            d.errores++;
+            d.spEstBugs  += spEst;
+            d.spRealBugs += spReal;
+            d.tkBugs.push(tkEntry);
+        } else if (tipo.includes('histor')) {
+            d.historias++;
+            d.spEstHistorias  += spEst;
+            d.spRealHistorias += spReal;
+            d.tkHistorias.push(tkEntry);
+        } else {
+            d.tareas++;
+            d.spEstTareas  += spEst;
+            d.spRealTareas += spReal;
+            d.tkTareas.push(tkEntry);
+        }
+    });
+
+    // Regresiones QA → Test Issues
+    const QA_MEMBERS_TI = new Set(['Said Cervantes Correa']);
+    ef.forEach(t => {
+        const hist = clData[t.clave];
+        if (!hist || !Array.isArray(hist)) return;
+        if (hist.some(h => (h.estado || '') === 'Test Issues')) {
+            const p = t.asignado || 'Sin asignar';
+            if (personas[p]) {
+                personas[p].testIssues++;
+                const spEst2 = parseFloat(t.storyPointEstimate) || 0;
+                const hist2 = clData[t.clave];
+                const isQA2 = QA_MEMBERS_TI.has(p);
+                const spReal2 = hist2 ? parseFloat(hist2.filter(h =>
+                    isQA2
+                        ? (h.estado === 'In Test' || h.estado === 'Test Issues')
+                        : (h.estado === 'In Process' || h.estado === 'Test Issues')
+                ).reduce((s,h)=>s+(parseFloat(h.dias)||0),0).toFixed(1)) : 0;
+                personas[p].tkTI.push({ c: t.clave, r: (t.resumen||'').slice(0,80), t: t.tipoIncidencia||'', se: spEst2, sr: spReal2, e: t.estadoNormalizado||t.estado||'' });
+            }
+        }
+    });
+
+    // Añadir tickets Arrastrados al cómputo de CC (no cuentan para spEstimado/spReal)
+    const arrastrados = tickets.filter(t => String(t.sprint) === String(sprint) && t.estado === 'Arrastrado');
+    arrastrados.forEach(t => {
+        const p = t.asignado || 'Sin asignar';
+        if (!personas[p]) personas[p] = {
+            errores: 0, tareas: 0, historias: 0, total: 0,
+            spEstimado: 0, spReal: 0,
+            spEstBugs: 0, spEstTareas: 0, spEstHistorias: 0,
+            spRealBugs: 0, spRealTareas: 0, spRealHistorias: 0,
+            testIssues: 0,
+            capacidadComp: 0,
+            tkAll: [], tkBugs: [], tkTareas: [], tkHistorias: [], tkTI: [], tkCompromiso: []
+        };
+        const spEst = parseFloat(t.storyPointEstimate) || 0;
+        const tkEntry = { c: t.clave, r: (t.resumen || '').slice(0, 80), t: t.tipoIncidencia || '', se: spEst, sr: 0, e: 'Arrastrado' };
+        personas[p].capacidadComp += spEst;
+        personas[p].tkCompromiso.push(tkEntry);
+    });
+
+    const fmt = v => parseFloat(v.toFixed(1));
+    const ordenadas = Object.entries(personas)
+        .filter(([nombre]) => nombre !== 'Sin asignar')
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([nombre, d]) => ({
+            nombre,
+            errores: d.errores, tareas: d.tareas, historias: d.historias, total: d.total,
+            spEstimado:      fmt(d.spEstimado),
+            spReal:          fmt(d.spReal),
+            capacidadComp:   fmt(d.capacidadComp),
+            spEstBugs:       fmt(d.spEstBugs),
+            spEstTareas:     fmt(d.spEstTareas),
+            spEstHistorias:  fmt(d.spEstHistorias),
+            spRealBugs:      fmt(d.spRealBugs),
+            spRealTareas:    fmt(d.spRealTareas),
+            spRealHistorias: fmt(d.spRealHistorias),
+            testIssues:      d.testIssues,
+            pctTestIssues:   d.total > 0 ? fmt((d.testIssues / d.total) * 100) : 0,
+            desviacion:      fmt(d.spReal - d.spEstimado),
+            tkAll:       d.tkAll,
+            tkBugs:      d.tkBugs,
+            tkTareas:    d.tkTareas,
+            tkHistorias: d.tkHistorias,
+            tkTI:        d.tkTI,
+            tkCompromiso: d.tkCompromiso
+        }));
+
+    return { sprint, personas: ordenadas, totalTickets: ef.length };
+}
+
+function calcularCargaPersona(tickets, sprints) {
+    // eslint-disable-next-line no-undef
+    const clData = (typeof changelogData !== 'undefined') ? changelogData : {};
+    // Retornar array de objetos, uno por sprint (igual que Lead Time / Cycle Time)
+    return sprints.map(s => _calcularCargaPersonaSprint(tickets, s, clData));
+}
+
+// ── FUNCIONES GLOBALES PARA EL POPUP ─────────────────────────────────
+// Estas se ejecutan cuando el usuario hace clic en las celdas de la tabla
+window.showCargaPopup = function(key, label) {
+    const el = document.getElementById('tkdata-' + key);
+    if (!el) { console.warn('No data found for key: ' + key); return; }
+    const tickets = JSON.parse(el.textContent);
+    const overlay = document.getElementById('carga-popup-overlay');
+    if (!overlay) { console.warn('Popup overlay not found'); return; }
+    document.getElementById('carga-popup-title').textContent = label + ' — ' + tickets.length + ' ticket' + (tickets.length !== 1 ? 's' : '');
+    const rows = tickets.map(tk => {
+        const srTxt = tk.sr > 0 ? tk.sr + 'd' : '—';
+        const seTxt = tk.se > 0 ? tk.se + ' SP' : '—';
+        const eBg = tk.e === 'Done' || tk.e === 'Cerrado' ? '#D1FAE5' : tk.e === 'In Test' || tk.e === 'IN TEST DEV' ? '#DBEAFE' : '#F3F4F6';
+        const eColor = tk.e === 'Done' || tk.e === 'Cerrado' ? '#065F46' : tk.e === 'In Test' || tk.e === 'IN TEST DEV' ? '#1E40AF' : '#374151';
+        return '<tr style="border-top:1px solid #F3F4F6;">'
+            + '<td style="padding:8px 10px;font-size:11px;font-weight:600;color:#4338CA;white-space:nowrap;">' + tk.c + '</td>'
+            + '<td style="padding:8px 10px;font-size:11px;color:#374151;max-width:340px;">' + tk.r + (tk.r.length >= 80 ? '…' : '') + '</td>'
+            + '<td style="padding:8px 10px;font-size:11px;color:#6B7280;white-space:nowrap;">' + tk.t + '</td>'
+            + '<td style="padding:8px 6px;text-align:center;"><span style="background:' + eBg + ';color:' + eColor + ';padding:2px 7px;border-radius:6px;font-size:10px;font-weight:500;white-space:nowrap;">' + tk.e + '</span></td>'
+            + '<td style="padding:8px 8px;text-align:center;font-size:11px;color:#4338CA;font-weight:600;">' + seTxt + '</td>'
+            + '<td style="padding:8px 8px;text-align:center;font-size:11px;color:#065F46;font-weight:600;">' + srTxt + '</td>'
+            + '</tr>';
+    }).join('');
+    document.getElementById('carga-popup-body').innerHTML = tickets.length === 0
+        ? '<p style="color:#9CA3AF;font-size:12px;padding:10px 0;">Sin tickets en esta categoría.</p>'
+        : '<table style="width:100%;border-collapse:collapse;">'
+            + '<thead><tr style="background:#F9FAFB;">'
+            + '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:#374151;letter-spacing:0.06em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Clave</th>'
+            + '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:#374151;letter-spacing:0.06em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Resumen</th>'
+            + '<th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:#374151;letter-spacing:0.06em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Tipo</th>'
+            + '<th style="padding:7px 6px;text-align:center;font-size:10px;font-weight:700;color:#374151;letter-spacing:0.06em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Estado</th>'
+            + '<th style="padding:7px 8px;text-align:center;font-size:10px;font-weight:700;color:#4338CA;letter-spacing:0.06em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">SP Est.</th>'
+            + '<th style="padding:7px 8px;text-align:center;font-size:10px;font-weight:700;color:#065F46;letter-spacing:0.06em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">SP Real</th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+};
+
+window.closeCargaPopup = function() {
+    const overlay = document.getElementById('carga-popup-overlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+        document.body.style.overflow = '';
+    }
+};
+
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') window.closeCargaPopup(); });
+
+function renderCargaPersonaSection(dataArray) {
+    // dataArray: [{sprint, personas: [], totalTickets}, ...]
+    const items = Array.isArray(dataArray) ? dataArray : [dataArray];
+    const validos = items.filter(d => d && d.personas && d.personas.length > 0);
+
+    if (validos.length === 0) {
+        return `<div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            <div class="section-header-avanzado" style="background:#F9FAFB;border-bottom:1px solid #E5E7EB;padding:12px 16px;">
+                <h2 style="margin:0;font-size:15px;font-weight:600;color:#111827;">Carga y Calidad por Miembro del Equipo</h2>
+            </div>
+            <div style="padding:20px;color:#9CA3AF;font-size:13px;">Sin datos suficientes para este análisis.</div>
+        </div>`;
+    }
+
+    const sprintLabel = validos.map(d => `Sprint ${d.sprint}`).join(' · ');
+
+    // ── Render de un sub-panel por sprint ──────────────────────────────────
+    function renderSprintPanel(d) {
+        const { sprint, personas } = d;
+        const subId = `carga-persona-sprint-${sprint}-content`;
+        const totalTickets  = personas.reduce((s, p) => s + p.total, 0);
+        const totalBugs     = personas.reduce((s, p) => s + p.errores, 0);
+        const totalTareas   = personas.reduce((s, p) => s + p.tareas, 0);
+        const totalHistorias= personas.reduce((s, p) => s + p.historias, 0);
+        const totalSpEst    = parseFloat(personas.reduce((s, p) => s + p.spEstimado, 0).toFixed(1));
+        const totalSpReal   = parseFloat(personas.reduce((s, p) => s + p.spReal, 0).toFixed(1));
+        const totalDesv     = parseFloat((totalSpReal - totalSpEst).toFixed(1));
+        const totalCC       = parseFloat(personas.reduce((s, p) => s + p.capacidadComp, 0).toFixed(1));
+
+        // ── 3 summary cards: Bugs, Tareas, Historias ──
+        const resumenMini = `
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
+                <div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px 12px;text-align:center;">
+                    <div style="font-size:22px;font-weight:700;color:#111827;line-height:1;">${totalBugs}</div>
+                    <div style="font-size:10px;color:#6B7280;margin-top:5px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;">Bugs</div>
+                </div>
+                <div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px 12px;text-align:center;">
+                    <div style="font-size:22px;font-weight:700;color:#111827;line-height:1;">${totalTareas}</div>
+                    <div style="font-size:10px;color:#6B7280;margin-top:5px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;">Tareas</div>
+                </div>
+                <div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:14px 12px;text-align:center;">
+                    <div style="font-size:22px;font-weight:700;color:#111827;line-height:1;">${totalHistorias}</div>
+                    <div style="font-size:10px;color:#6B7280;margin-top:5px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;">Historias</div>
+                </div>
+            </div>`;
+
+        // Registrar datos del popup como JSON puro (script[type=application/json] sí funciona en innerHTML)
+        const popupDataScript = personas.map(p => {
+            const pk = `${sprint}-${p.nombre.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            return `<script type="application/json" id="tkdata-${pk}-all">${JSON.stringify(p.tkAll)}<\/script>`
+                 + `<script type="application/json" id="tkdata-${pk}-bugs">${JSON.stringify(p.tkBugs)}<\/script>`
+                 + `<script type="application/json" id="tkdata-${pk}-tareas">${JSON.stringify(p.tkTareas)}<\/script>`
+                 + `<script type="application/json" id="tkdata-${pk}-historias">${JSON.stringify(p.tkHistorias)}<\/script>`
+                 + `<script type="application/json" id="tkdata-${pk}-ti">${JSON.stringify(p.tkTI)}<\/script>`
+                 + `<script type="application/json" id="tkdata-${pk}-cc">${JSON.stringify(p.tkCompromiso)}<\/script>`;
+        }).join('');
+
+        const filas = personas.map((p, idx) => {
+            const desv = parseFloat((p.spReal - p.spEstimado).toFixed(1));
+            const rowBg = idx % 2 === 0 ? '#fff' : '#F9FAFB';
+            const dStyle = desv > 0
+                ? 'color:#92400E;font-weight:700;'
+                : desv < 0
+                    ? 'color:#065F46;font-weight:700;'
+                    : 'color:#6B7280;font-weight:600;';
+            const tiVal = p.testIssues > 0 ? p.testIssues + ' (' + p.pctTestIssues + '%)' : '—';
+            const tiStyle = p.testIssues === 0
+                ? 'color:#9CA3AF;'
+                : p.pctTestIssues >= 20
+                    ? 'color:#B91C1C;font-weight:700;'
+                    : 'color:#92400E;font-weight:600;';
+            const pk = `${sprint}-${p.nombre.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const clickStyle = 'cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px;';
+            return `
+            <tr style="background:${rowBg};border-top:1px solid #F3F4F6;">
+                <td style="padding:10px 14px;font-size:12px;color:#111827;white-space:nowrap;">
+                    <div style="display:flex;align-items:center;gap:9px;">
+                        <div style="width:26px;height:26px;border-radius:50%;background:#E5E7EB;display:flex;align-items:center;justify-content:center;color:#374151;font-size:10px;font-weight:700;flex-shrink:0;">
+                            ${p.nombre.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)}
+                        </div>
+                        <span onclick="showCargaPopup('${pk}-all','${p.nombre} — Todos')" style="font-weight:500;${clickStyle}">${p.nombre}</span>
+                    </div>
+                </td>
+                <td style="padding:10px 8px;text-align:center;font-size:12px;color:#374151;">
+                    <span onclick="showCargaPopup('${pk}-bugs','${p.nombre} — Bugs')" style="${p.errores > 0 ? clickStyle : ''}">${p.errores}</span>
+                </td>
+                <td style="padding:10px 8px;text-align:center;font-size:12px;color:#374151;">
+                    <span onclick="showCargaPopup('${pk}-tareas','${p.nombre} — Tareas')" style="${p.tareas > 0 ? clickStyle : ''}">${p.tareas}</span>
+                </td>
+                <td style="padding:10px 8px;text-align:center;font-size:12px;color:#374151;">
+                    <span onclick="showCargaPopup('${pk}-historias','${p.nombre} — Historias')" style="${p.historias > 0 ? clickStyle : ''}">${p.historias}</span>
+                </td>
+                <td style="padding:10px 8px;text-align:center;font-size:12px;font-weight:600;color:#111827;">
+                    <span onclick="showCargaPopup('${pk}-all','${p.nombre} — Todos')" style="${clickStyle}">${p.total}</span>
+                </td>
+                <td style="padding:10px 10px;text-align:center;font-size:12px;color:#D97706;font-weight:600;">
+                    <span onclick="${p.capacidadComp > 0 ? `showCargaPopup('${pk}-cc','${p.nombre} — Capacidad Comprometida')` : ''}" style="${p.capacidadComp > 0 ? clickStyle : 'color:#9CA3AF;'}">${p.capacidadComp > 0 ? p.capacidadComp+' SP' : '—'}</span>
+                </td>
+                <td style="padding:10px 10px;text-align:center;font-size:12px;color:#4338CA;font-weight:600;">
+                    <span onclick="showCargaPopup('${pk}-all','${p.nombre} — SP Est. (todos)')" style="${p.spEstimado > 0 ? clickStyle : ''}">${p.spEstimado > 0 ? p.spEstimado+' SP' : '—'}</span>
+                </td>
+                <td style="padding:10px 10px;text-align:center;font-size:12px;color:#065F46;font-weight:600;">
+                    <span onclick="showCargaPopup('${pk}-all','${p.nombre} — SP Real (todos)')" style="${p.spReal > 0 ? clickStyle : ''}">${p.spReal > 0 ? p.spReal+'d' : '—'}</span>
+                </td>
+                <td style="padding:10px 8px;text-align:center;font-size:12px;${dStyle}">
+                    ${desv === 0 ? '—' : (desv > 0 ? '+' : '') + desv + 'd'}
+                </td>
+                <td style="padding:10px 8px;text-align:center;font-size:12px;color:#374151;">
+                    <span onclick="showCargaPopup('${pk}-bugs','${p.nombre} — Bugs / SP Est.')" style="${p.spEstimado > 0 ? clickStyle : ''}">${p.spEstimado > 0 ? Math.round(p.spEstBugs / p.spEstimado * 100) + '%' : '—'}</span>
+                </td>
+                <td style="padding:10px 8px;text-align:center;font-size:12px;color:#374151;">
+                    <span onclick="showCargaPopup('${pk}-bugs','${p.nombre} — Bugs / SP Real')" style="${p.spReal > 0 ? clickStyle : ''}">${p.spReal > 0 ? Math.round(p.spRealBugs / p.spReal * 100) + '%' : '—'}</span>
+                </td>
+                <td style="padding:10px 8px;text-align:center;font-size:12px;${tiStyle}">
+                    <span onclick="showCargaPopup('${pk}-ti','${p.nombre} — QA→Test Issue')" style="${p.testIssues > 0 ? clickStyle : ''}">${tiVal}</span>
+                </td>
+            </tr>`;
+        }).join('');
+
+        return `
+            <div style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:12px;">
+                <div class="collapsible" onclick="toggleSection('${subId}')"
+                     style="background:#F9FAFB;border-bottom:1px solid #E5E7EB;padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:10px;user-select:none;">
+                    <span class="collapse-icon" id="icon-${subId}" style="color:#9CA3AF;font-size:13px;transition:transform 0.3s ease;">▼</span>
+                    <span style="font-size:13px;font-weight:600;color:#111827;">Sprint ${sprint}</span>
+                </div>
+                <div id="${subId}" class="section-content-avanzado" style="padding:16px 14px;">
+                    ${popupDataScript}
+                    ${resumenMini}
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                            <thead>
+                                <tr>
+                                    <th style="padding:9px 14px;text-align:left;font-weight:700;color:#F9FAFB;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;white-space:nowrap;background:#374151;border-bottom:2px solid #4B5563;">Miembro</th>
+                                    <th style="padding:9px 8px;text-align:center;font-weight:700;color:#F9FAFB;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;">Bugs</th>
+                                    <th style="padding:9px 8px;text-align:center;font-weight:700;color:#F9FAFB;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;">Tareas</th>
+                                    <th style="padding:9px 8px;text-align:center;font-weight:700;color:#F9FAFB;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;">Historias</th>
+                                    <th style="padding:9px 8px;text-align:center;font-weight:700;color:#F9FAFB;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;">Total</th>
+                                    <th style="padding:9px 8px;text-align:center;font-weight:700;color:#FCD34D;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;">CC</th>
+                                    <th style="padding:9px 10px;text-align:center;font-weight:700;color:#A5B4FC;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;">SP Est.</th>
+                                    <th style="padding:9px 10px;text-align:center;font-weight:700;color:#6EE7B7;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;">SP Real</th>
+                                    <th style="padding:9px 8px;text-align:center;font-weight:700;color:#F9FAFB;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;">Desviación</th>
+                                    <th style="padding:9px 8px;text-align:center;font-weight:700;color:#FCA5A5;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;white-space:nowrap;">% Bugs / SP Est.</th>
+                                    <th style="padding:9px 8px;text-align:center;font-weight:700;color:#FCA5A5;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;white-space:nowrap;">% Bugs / SP Real</th>
+                                    <th style="padding:9px 8px;text-align:center;font-weight:700;color:#F9FAFB;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;background:#374151;border-bottom:2px solid #4B5563;white-space:nowrap;">QA → Test Issue</th>
+                                </tr>
+                            </thead>
+                            <tbody>${filas}</tbody>
+                            <tfoot>
+                                <tr style="background:#F3F4F6;border-top:2px solid #D1D5DB;">
+                                    <td style="padding:10px 14px;font-size:12px;font-weight:700;color:#111827;">TOTAL</td>
+                                    <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">—</td>
+                                    <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">—</td>
+                                    <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">—</td>
+                                    <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">—</td>
+                                    <td style="padding:10px 10px;text-align:center;font-size:12px;color:#D97706;font-weight:700;">${totalCC > 0 ? totalCC + ' SP' : '—'}</td>
+                                    <td style="padding:10px 10px;text-align:center;font-size:12px;color:#4338CA;font-weight:700;">${totalSpEst > 0 ? totalSpEst + ' SP' : '—'}</td>
+                                    <td style="padding:10px 10px;text-align:center;font-size:12px;color:#065F46;font-weight:700;">${totalSpReal > 0 ? totalSpReal + 'd' : '—'}</td>
+                                    <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">—</td>
+                                    <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">—</td>
+                                    <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">—</td>
+                                    <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">—</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <div style="margin-top:12px;padding:9px 12px;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;font-size:11px;color:#6B7280;line-height:1.5;">
+                        <strong style="color:#D97706;">CC (Capacidad Comprometida):</strong> SP estimados de todos los tickets del sprint (finalizados + arrastrados al siguiente).
+                        &nbsp;·&nbsp; <strong style="color:#374151;">SP Real:</strong> días en estado <em>In Process</em> + <em>Test Issues</em> (devs) · <em>In Test</em> + <em>Test Issues</em> (QA: Said Cervantes Correa).
+                        &nbsp;·&nbsp; <strong style="color:#374151;">Desviación:</strong> SP Real − SP Est. (positivo = tardó más que lo planificado).
+                        &nbsp;·&nbsp; <strong style="color:#374151;">QA → Test Issue:</strong> tickets que regresaron a corrección durante QA (&gt;20% = área de mejora).
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    // ── Modal popup (sólo el div, sin script) ──────────────────────
+    const popupHTML = `
+        <div id="carga-popup-overlay" onclick="if(event.target===this)closeCargaPopup()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;align-items:center;justify-content:center;">
+            <div style="background:#fff;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,0.25);width:min(860px,95vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">
+                <div style="padding:14px 18px;border-bottom:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between;background:#F9FAFB;">
+                    <div id="carga-popup-title" style="font-size:13px;font-weight:600;color:#111827;"></div>
+                    <button onclick="closeCargaPopup()" style="background:none;border:none;cursor:pointer;font-size:18px;color:#6B7280;line-height:1;padding:2px 6px;border-radius:4px;">&times;</button>
+                </div>
+                <div id="carga-popup-body" style="overflow-y:auto;padding:14px 18px;"></div>
+            </div>
+        </div>`;
+
+    return popupHTML + `
+        <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('carga-persona-content')"
+                 style="background:#F9FAFB;border-bottom:1px solid #E5E7EB;padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:background 0.2s ease;user-select:none;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span class="collapse-icon" id="icon-carga-persona-content" style="color:#9CA3AF;font-size:14px;transition:transform 0.3s ease;">▼</span>
+                    <svg style="width:18px;height:18px;flex-shrink:0;" fill="none" stroke="#6B7280" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <h2 style="margin:0;font-size:14px;font-weight:600;color:#111827;">Carga y Calidad por Miembro del Equipo</h2>
+                </div>
+                <span style="font-size:11px;color:#9CA3AF;">${sprintLabel}</span>
+            </div>
+            <div id="carga-persona-content" class="section-content-avanzado" style="padding:16px;">
+                ${validos.map(d => renderSprintPanel(d)).join('')}
+            </div>
+        </div>`;
+}
+
+
+// ============================================================================
+// KPI: CAPACIDAD AÑADIDA POR SPRINT (SCOPE CREEP)
+// ============================================================================
+
+/**
+ * Calcula el porcentaje de tickets incorporados después del inicio del sprint.
+ * Usa la fecha de creación más temprana del sprint como referencia de inicio.
+ * Tickets creados > 2 días después del inicio se consideran capacidad añadida.
+ */
+function calcularScopeCreep(tickets, sprintsTarget) {
+    const result = [];
+    sprintsTarget.forEach(s => {
+        const ts = tickets.filter(t => String(t.sprint) === String(s) && t.estado !== 'Arrastrado');
+        if (ts.length === 0) { result.push({ sprint: s, planificados: 0, añadidos: 0, pct: 0, total: 0, inicioEstimado: '—' }); return; }
+
+        const fechas = ts.map(t => parsearFechaAvanzada(t.creada)).filter(f => f);
+        if (fechas.length === 0) { result.push({ sprint: s, planificados: ts.length, añadidos: 0, pct: 0, total: ts.length, inicioEstimado: '—' }); return; }
+
+        fechas.sort((a, b) => a - b);
+        const inicioSprint = fechas[0];
+        // Ventana de planificación: hasta 2 días después de la primera tarea creada
+        const umbral = new Date(inicioSprint.getTime() + 2 * 24 * 60 * 60 * 1000);
+
+        const ticketsPlanificados = ts.filter(t => { const f = parsearFechaAvanzada(t.creada); return f && f <= umbral; });
+        const ticketsAñadidos    = ts.filter(t => { const f = parsearFechaAvanzada(t.creada); return f && f > umbral; });
+
+        const pct = parseFloat(((ticketsAñadidos.length / ts.length) * 100).toFixed(1));
+        const spPlan = parseFloat(ticketsPlanificados.reduce((sum, t) => sum + (parseFloat(t.storyPointEstimate) || 0), 0).toFixed(1));
+        const spAñad = parseFloat(ticketsAñadidos.reduce((sum, t) => sum + (parseFloat(t.storyPointEstimate) || 0), 0).toFixed(1));
+
+        result.push({
+            sprint: s,
+            planificados: ticketsPlanificados.length, añadidos: ticketsAñadidos.length,
+            total: ts.length, pct,
+            spPlanificados: spPlan, spAñadidos: spAñad,
+            spTotal: parseFloat((spPlan + spAñad).toFixed(1)),
+            inicioEstimado: inicioSprint.toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'2-digit' }),
+            umbralEstimado: umbral.toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'2-digit' })
+        });
+    });
+    return result;
+}
+
+function renderScopeCreepSection(data) {
+    if (!data || data.length === 0) return '';
+    const validos = data.filter(d => d.total > 0);
+    if (validos.length === 0) return '';
+
+    const avgPct = parseFloat((validos.reduce((s, d) => s + d.pct, 0) / validos.length).toFixed(1));
+    const maxAñadidos = Math.max(...validos.map(d => d.añadidos), 1);
+    const totalAñadidos = validos.reduce((s, d) => s + d.añadidos, 0);
+
+    const statusColor = avgPct <= 10 ? '#D1FAE5' : avgPct <= 20 ? '#FEF3C7' : '#FEE2E2';
+    const statusTextColor = avgPct <= 10 ? '#065F46' : avgPct <= 20 ? '#92400E' : '#991B1B';
+    const statusLabel = avgPct <= 10 ? '✓ Controlado' : avgPct <= 20 ? '⚠ Revisar' : '✗ Crítico';
+
+    const resumenCards = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
+            <div style="background:#F8F7FF;border:1px solid #E8E6FF;border-radius:8px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:700;color:#6C63FF;">${avgPct}%</div>
+                <div style="font-size:11px;color:#64748B;margin-top:4px;font-weight:500;">SCOPE CREEP PROMEDIO</div>
+            </div>
+            <div style="background:#FFF5F5;border:1px solid #FED7D7;border-radius:8px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:700;color:#E53E3E;">${totalAñadidos}</div>
+                <div style="font-size:11px;color:#64748B;margin-top:4px;font-weight:500;">TICKETS AÑADIDOS</div>
+            </div>
+            <div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:700;color:#0284C7;">${validos.reduce((s,d)=>s+d.planificados,0)}</div>
+                <div style="font-size:11px;color:#64748B;margin-top:4px;font-weight:500;">TICKETS PLANIFICADOS</div>
+            </div>
+            <div style="background:${statusColor};border:1px solid ${statusColor};border-radius:8px;padding:14px;text-align:center;">
+                <div style="font-size:18px;font-weight:700;color:${statusTextColor};">${statusLabel}</div>
+                <div style="font-size:11px;color:#64748B;margin-top:4px;font-weight:500;">META: &lt; 10%</div>
+            </div>
+        </div>`;
+
+    const barras = validos.map(d => {
+        const widthPlan = d.total > 0 ? ((d.planificados / d.total) * 100).toFixed(1) : 0;
+        const widthAñad = d.total > 0 ? ((d.añadidos / d.total) * 100).toFixed(1) : 0;
+        const alertColor = d.pct <= 10 ? '#10B981' : d.pct <= 20 ? '#F59E0B' : '#EF4444';
+        return `
+        <div style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                <span style="font-size:13px;font-weight:600;color:#1F2937;">Sprint ${d.sprint}</span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:11px;color:#6B7280;">Inicio est.: ${d.inicioEstimado}</span>
+                    <span style="background:${alertColor}22;color:${alertColor};padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700;">${d.pct}% añadido</span>
+                </div>
+            </div>
+            <div style="height:28px;background:#F3F4F6;border-radius:6px;overflow:hidden;display:flex;">
+                <div style="width:${widthPlan}%;background:linear-gradient(to right,#6C63FF,#818CF8);display:flex;align-items:center;justify-content:center;transition:width 0.6s ease;">
+                    ${d.planificados > 0 ? `<span style="font-size:11px;font-weight:600;color:#fff;white-space:nowrap;padding:0 6px;">${d.planificados} plan.</span>` : ''}
+                </div>
+                <div style="width:${widthAñad}%;background:linear-gradient(to right,#F97316,#FB923C);display:flex;align-items:center;justify-content:center;transition:width 0.6s ease;">
+                    ${d.añadidos > 0 ? `<span style="font-size:11px;font-weight:600;color:#fff;white-space:nowrap;padding:0 6px;">${d.añadidos} añad.</span>` : ''}
+                </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#9CA3AF;margin-top:3px;">
+                <span>${d.planificados} tickets · ${d.spPlanificados} SP planificados</span>
+                <span>${d.añadidos} tickets · ${d.spAñadidos} SP añadidos</span>
+            </div>
+        </div>`;
+    }).join('');
+
+    const tablaFilas = validos.map(d => {
+        const alertColor = d.pct <= 10 ? '#D1FAE5' : d.pct <= 20 ? '#FEF3C7' : '#FEE2E2';
+        const alertText = d.pct <= 10 ? '#065F46' : d.pct <= 20 ? '#92400E' : '#991B1B';
+        return `
+        <tr style="border-top:1px solid #F3F4F6;">
+            <td style="padding:10px 12px;font-size:13px;font-weight:600;color:#1F2937;">Sprint ${d.sprint}</td>
+            <td style="padding:10px 8px;text-align:center;font-size:13px;color:#374151;">${d.total}</td>
+            <td style="padding:10px 8px;text-align:center;font-size:13px;color:#6C63FF;font-weight:600;">${d.planificados}</td>
+            <td style="padding:10px 8px;text-align:center;font-size:13px;color:#F97316;font-weight:600;">${d.añadidos}</td>
+            <td style="padding:10px 8px;text-align:center;">
+                <span style="background:${alertColor};color:${alertText};padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;">${d.pct}%</span>
+            </td>
+            <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">${d.spPlanificados} SP</td>
+            <td style="padding:10px 8px;text-align:center;font-size:12px;color:#6B7280;">${d.spAñadidos} SP</td>
+            <td style="padding:10px 12px;font-size:11px;color:#9CA3AF;">${d.inicioEstimado}</td>
+        </tr>`;
+    }).join('');
+
+    return `
+        <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('scope-creep-content')"
+                 style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:all 0.3s ease;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <span class="collapse-icon" id="icon-scope-creep-content" style="color:#6B7280;font-size:18px;transition:transform 0.3s ease;">▼</span>
+                    <svg style="width:20px;height:20px;" fill="none" stroke="#F97316" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Capacidad Añadida por Sprint (Scope Creep)</h2>
+                </div>
+                <span style="font-size:11px;color:#9CA3AF;font-weight:500;">Sprints ${validos.map(d=>'S'+d.sprint).join('–')}</span>
+            </div>
+            <div id="scope-creep-content" class="section-content-avanzado" style="padding:16px;">
+                ${resumenCards}
+                <div style="margin-bottom:20px;">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+                        <h3 style="margin:0;font-size:14px;font-weight:600;color:#374151;">Distribución Planificado vs Añadido</h3>
+                        <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:#6B7280;">
+                            <span><span style="display:inline-block;width:10px;height:10px;background:#6C63FF;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Planificado</span>
+                            <span><span style="display:inline-block;width:10px;height:10px;background:#F97316;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>Añadido durante sprint</span>
+                        </div>
+                    </div>
+                    ${barras}
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                        <thead>
+                            <tr style="background:#FFF8F3;">
+                                <th style="padding:10px 12px;text-align:left;font-weight:600;color:#374151;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Sprint</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#374151;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Total</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#6C63FF;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Planificados</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#F97316;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Añadidos</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#374151;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">% Scope Creep</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#6B7280;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">SP Plan.</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#6B7280;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">SP Añad.</th>
+                                <th style="padding:10px 12px;text-align:left;font-weight:600;color:#9CA3AF;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Inicio Est.</th>
+                            </tr>
+                        </thead>
+                        <tbody>${tablaFilas}</tbody>
+                    </table>
+                </div>
+                <div style="margin-top:12px;padding:10px 14px;background:#FFF8F0;border-left:3px solid #F97316;border-radius:0 6px 6px 0;font-size:11px;color:#92400E;">
+                    <strong>Metodología:</strong> Se establece el inicio del sprint en la fecha de creación del primer ticket del sprint.
+                    Tickets creados más de 2 días después se clasifican como capacidad añadida. Meta recomendada: <strong>&lt;10%</strong> de scope creep por sprint.
+                </div>
+            </div>
+        </div>`;
+}
+
+
+// ============================================================================
+// KPI: VELOCIDAD Y MÁXIMO TEÓRICO POR SPRINT
+// ============================================================================
+
+/**
+ * Calcula la velocidad real (SP entregados) vs máximo teórico (SP comprometidos)
+ * por sprint, con desglose por tipo de ticket.
+ */
+function calcularVelocidadSprint(tickets, sprintsTarget) {
+    return sprintsTarget.map(s => {
+        const ts = tickets.filter(t => String(t.sprint) === String(s) && t.estado !== 'Arrastrado');
+        const entregados = ts.filter(t => t.estadoNormalizado === 'Finalizados');
+
+        const spComprometido = parseFloat(ts.reduce((sum, t) => sum + (parseFloat(t.storyPointEstimate) || 0), 0).toFixed(1));
+        const spEntregado    = parseFloat(entregados.reduce((sum, t) => sum + (parseFloat(t.storyPointEstimate) || 0), 0).toFixed(1));
+        const eficiencia     = spComprometido > 0 ? parseFloat(((spEntregado / spComprometido) * 100).toFixed(1)) : 0;
+
+        const byTipo = { Error: {n:0,sp:0}, Tarea: {n:0,sp:0}, Historia: {n:0,sp:0}, Otro: {n:0,sp:0} };
+        entregados.forEach(t => {
+            const tipo = (t.tipoIncidencia || '').toLowerCase();
+            const sp = parseFloat(t.storyPointEstimate) || 0;
+            if      (tipo.includes('error') || tipo.includes('bug')) { byTipo.Error.n++;    byTipo.Error.sp    += sp; }
+            else if (tipo.includes('histor'))                         { byTipo.Historia.n++; byTipo.Historia.sp += sp; }
+            else if (tipo.includes('tarea') || tipo.includes('spike')){ byTipo.Tarea.n++;   byTipo.Tarea.sp    += sp; }
+            else                                                      { byTipo.Otro.n++;    byTipo.Otro.sp     += sp; }
+        });
+        Object.keys(byTipo).forEach(k => { byTipo[k].sp = parseFloat(byTipo[k].sp.toFixed(1)); });
+
+        return { sprint: s, total: ts.length, entregados: entregados.length, spComprometido, spEntregado, eficiencia, byTipo };
+    });
+}
+
+function renderVelocidadSection(data) {
+    if (!data || data.length === 0) return '';
+    const validos = data.filter(d => d.total > 0);
+    if (validos.length === 0) return '';
+
+    const sprintsCerrados = validos.filter(d => d.eficiencia >= 90);
+    const avgVelocidad = validos.length > 0 ? parseFloat((validos.reduce((s, d) => s + d.spEntregado, 0) / validos.length).toFixed(1)) : 0;
+    const maxVelocidad = Math.max(...validos.map(d => d.spEntregado), 0);
+    const avgEficiencia = validos.length > 0 ? parseFloat((validos.reduce((s, d) => s + d.eficiencia, 0) / validos.length).toFixed(1)) : 0;
+    const maxSPBar = Math.max(...validos.map(d => d.spComprometido), 1);
+
+    const resumenCards = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px;">
+            <div style="background:#F8F7FF;border:1px solid #E8E6FF;border-radius:8px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:700;color:#6C63FF;">${avgVelocidad}</div>
+                <div style="font-size:11px;color:#64748B;margin-top:4px;font-weight:500;">SP PROMEDIO / SPRINT</div>
+            </div>
+            <div style="background:#F0FFF4;border:1px solid #C6F6D5;border-radius:8px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:700;color:#276749;">${maxVelocidad}</div>
+                <div style="font-size:11px;color:#64748B;margin-top:4px;font-weight:500;">MÁXIMO ALCANZADO</div>
+            </div>
+            <div style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:700;color:#4338CA;">${avgEficiencia}%</div>
+                <div style="font-size:11px;color:#64748B;margin-top:4px;font-weight:500;">EFICIENCIA PROMEDIO</div>
+            </div>
+            <div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;padding:14px;text-align:center;">
+                <div style="font-size:24px;font-weight:700;color:#0284C7;">${sprintsCerrados.length}/${validos.length}</div>
+                <div style="font-size:11px;color:#64748B;margin-top:4px;font-weight:500;">SPRINTS ≥ 90% EFIC.</div>
+            </div>
+        </div>`;
+
+    const barChart = `
+        <div style="margin-bottom:20px;">
+            <h3 style="font-size:14px;font-weight:600;color:#374151;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+                Velocidad Real vs Máximo Teórico
+                <div style="display:flex;align-items:center;gap:10px;font-size:11px;font-weight:400;color:#6B7280;">
+                    <span><span style="display:inline-block;width:10px;height:10px;background:#6C63FF;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>SP Entregados</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;background:#E5E7EB;border:1px solid #D1D5DB;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>SP Comprometidos</span>
+                </div>
+            </h3>
+            ${validos.map(d => {
+                const pctE = ((d.spEntregado / maxSPBar) * 100).toFixed(1);
+                const pctC = ((d.spComprometido / maxSPBar) * 100).toFixed(1);
+                const efColor = d.eficiencia >= 90 ? '#10B981' : d.eficiencia >= 70 ? '#F59E0B' : '#EF4444';
+                return `
+                <div style="margin-bottom:14px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                        <span style="font-size:13px;font-weight:600;color:#1F2937;">Sprint ${d.sprint}</span>
+                        <span style="font-size:12px;color:${efColor};font-weight:700;">${d.eficiencia}% eficiencia · ${d.entregados}/${d.total} tickets</span>
+                    </div>
+                    <div style="position:relative;height:32px;background:#F3F4F6;border-radius:6px;overflow:hidden;">
+                        <div style="position:absolute;top:0;left:0;width:${pctC}%;height:100%;background:#E8E6FF;border-radius:6px;"></div>
+                        <div style="position:absolute;top:4px;left:0;width:${pctE}%;height:24px;background:linear-gradient(to right,#6C63FF,#818CF8);border-radius:5px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;transition:width 0.6s ease;">
+                            <span style="font-size:12px;font-weight:700;color:#fff;white-space:nowrap;">${d.spEntregado} SP</span>
+                        </div>
+                    </div>
+                    <div style="font-size:11px;color:#9CA3AF;margin-top:3px;text-align:right;">Comprometido: ${d.spComprometido} SP</div>
+                </div>`;
+            }).join('')}
+        </div>`;
+
+    const tablaFilas = validos.map(d => {
+        const efColor = d.eficiencia >= 90 ? '#D1FAE5' : d.eficiencia >= 70 ? '#FEF3C7' : '#FEE2E2';
+        const efText  = d.eficiencia >= 90 ? '#065F46' : d.eficiencia >= 70 ? '#92400E' : '#991B1B';
+        const tipos = [
+            d.byTipo.Error.n > 0    ? `🐛 ${d.byTipo.Error.n} (${d.byTipo.Error.sp}SP)`       : null,
+            d.byTipo.Tarea.n > 0    ? `⚙️ ${d.byTipo.Tarea.n} (${d.byTipo.Tarea.sp}SP)`       : null,
+            d.byTipo.Historia.n > 0 ? `📖 ${d.byTipo.Historia.n} (${d.byTipo.Historia.sp}SP)` : null,
+            d.byTipo.Otro.n > 0     ? `📌 ${d.byTipo.Otro.n} (${d.byTipo.Otro.sp}SP)`         : null,
+        ].filter(Boolean).join('<br>');
+        return `
+        <tr style="border-top:1px solid #F3F4F6;">
+            <td style="padding:10px 12px;font-size:13px;font-weight:600;color:#1F2937;">Sprint ${d.sprint}</td>
+            <td style="padding:10px 8px;text-align:center;font-size:13px;color:#374151;">${d.total}</td>
+            <td style="padding:10px 8px;text-align:center;font-size:13px;font-weight:600;color:#6C63FF;">${d.entregados}</td>
+            <td style="padding:10px 8px;text-align:center;font-size:13px;color:#374151;">${d.spComprometido} SP</td>
+            <td style="padding:10px 8px;text-align:center;font-size:13px;font-weight:700;color:#6C63FF;">${d.spEntregado} SP</td>
+            <td style="padding:10px 8px;text-align:center;">
+                <span style="background:${efColor};color:${efText};padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;">${d.eficiencia}%</span>
+            </td>
+            <td style="padding:10px 12px;font-size:11px;color:#6B7280;line-height:1.6;">${tipos || '—'}</td>
+        </tr>`;
+    }).join('');
+
+    return `
+        <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('velocidad-content')"
+                 style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:all 0.3s ease;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <span class="collapse-icon" id="icon-velocidad-content" style="color:#6B7280;font-size:18px;transition:transform 0.3s ease;">▼</span>
+                    <svg style="width:20px;height:20px;" fill="none" stroke="#10B981" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                    </svg>
+                    <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Velocidad del Equipo y Máximo Teórico por Sprint</h2>
+                </div>
+                <span style="font-size:11px;color:#9CA3AF;font-weight:500;">Sprints ${validos.map(d=>'S'+d.sprint).join('–')}</span>
+            </div>
+            <div id="velocidad-content" class="section-content-avanzado" style="padding:16px;">
+                ${resumenCards}
+                ${barChart}
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                        <thead>
+                            <tr style="background:#F0FFF4;">
+                                <th style="padding:10px 12px;text-align:left;font-weight:600;color:#374151;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Sprint</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#374151;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Tickets</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#6C63FF;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Entregados</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#9CA3AF;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">SP Comprometido</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#6C63FF;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">SP Entregado</th>
+                                <th style="padding:10px 8px;text-align:center;font-weight:600;color:#374151;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Eficiencia</th>
+                                <th style="padding:10px 12px;text-align:left;font-weight:600;color:#6B7280;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Desglose Entregado</th>
+                            </tr>
+                        </thead>
+                        <tbody>${tablaFilas}</tbody>
+                    </table>
+                </div>
+                <div style="margin-top:12px;padding:10px 14px;background:#F0FFF4;border-left:3px solid #10B981;border-radius:0 6px 6px 0;font-size:11px;color:#065F46;">
+                    <strong>Velocidad = SP entregados</strong> (tickets en estado Finalizados al cierre del sprint, excluyendo Arrastrado).
+                    El <strong>Máximo Teórico</strong> es la suma de todos los SP comprometidos. La <strong>Eficiencia</strong> mide qué porcentaje de lo comprometido fue completado.
+                    Una eficiencia estable &gt;80% indica un equipo con estimaciones fiables.
+                </div>
+            </div>
+        </div>`;
+}
+
 
 // Hacer funciones disponibles globalmente
 window.calcularKPIsAvanzados = calcularKPIsAvanzados;

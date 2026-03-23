@@ -2,7 +2,24 @@
 
 // Variables globales
 let allTickets = [];
-let currentSprint = '34';
+let currentSprint = '36';
+
+/**
+ * Agrupa los estados intermedios del tablero como "En Curso" para métricas.
+ * Estados en curso: In Process, Blocked, CODE REVIEW, IN TEST DEV, Test Issues
+ */
+function esEnCurso(estado) {
+    return !['Finalizados', 'Tareas por hacer'].includes(estado);
+}
+
+/**
+ * Normaliza un estado a los 3 buckets de métricas: Tareas por hacer / En Curso / Finalizados
+ */
+function bucketEstado(estado) {
+    if (estado === 'Finalizados') return 'Finalizados';
+    if (estado === 'Tareas por hacer') return 'Tareas por hacer';
+    return 'En Curso';
+}
 
 // Inicialización
 document.addEventListener('DOMContentLoaded', function() {
@@ -162,9 +179,13 @@ function updateDashboard() {
     
     let tickets = allTickets;
     
+    // Excluir Spikes: no se cuentan como actividades
+    tickets = tickets.filter(t => t.tipoIncidencia !== 'Spike');
+    
     // Aplicar filtro según el tipo seleccionado
     if (tipoFiltro === 'sprint' && valorFiltro !== 'all') {
         tickets = tickets.filter(t => t.sprint == valorFiltro);
+        // "Arrastrado" se cuenta como "En Curso": se inició en este sprint pero no se terminó
         console.log('Tickets filtrados por sprint', valorFiltro, ':', tickets.length);
     } else if (tipoFiltro === 'mes' && valorFiltro !== 'all') {
         tickets = tickets.filter(t => {
@@ -184,7 +205,7 @@ function calcularKPIs(tickets) {
     
     // Contar por estado
     const finalizados = tickets.filter(t => t.estadoNormalizado === 'Finalizados').length;
-    const enCurso = tickets.filter(t => t.estadoNormalizado === 'En Curso').length;
+    const enCurso = tickets.filter(t => esEnCurso(t.estadoNormalizado)).length;
     const pendientes = tickets.filter(t => t.estadoNormalizado === 'Tareas por hacer').length;
     
     // Porcentajes
@@ -285,6 +306,9 @@ function showKPITickets(kpiType, sprintNum = null) {
     
     let tickets = [...ticketsData];
     
+    // Excluir Spikes: no se cuentan como actividades
+    tickets = tickets.filter(t => t.tipoIncidencia !== 'Spike');
+    
     // Aplicar el mismo filtro que está usando el dashboard
     if (tipoFiltro === 'sprint' && valorFiltro !== 'all') {
         tickets = tickets.filter(t => String(t.sprint) === String(valorFiltro));
@@ -311,7 +335,7 @@ function showKPITickets(kpiType, sprintNum = null) {
             title = 'Actividades Finalizadas';
             break;
         case 'enCurso':
-            filteredTickets = tickets.filter(t => t.estadoNormalizado === 'En Curso');
+            filteredTickets = tickets.filter(t => esEnCurso(t.estadoNormalizado));
             title = 'Actividades En Curso';
             break;
         case 'highestAbiertos':
@@ -402,7 +426,7 @@ function showTipoTickets(tipoIncidencia, filtro) {
             title = `${tipoIncidencia} - Finalizados`;
             break;
         case 'En Curso':
-            filteredTickets = tickets.filter(t => t.estadoNormalizado === 'En Curso');
+            filteredTickets = tickets.filter(t => esEnCurso(t.estadoNormalizado));
             title = `${tipoIncidencia} - En Curso`;
             break;
         case 'Tareas por hacer':
@@ -605,7 +629,7 @@ function renderDashboardKPIs(kpis, tickets) {
                     const ticketsPrio = tickets.filter(t => t.prioridad === p);
                     const total = ticketsPrio.length;
                     const fin = ticketsPrio.filter(t => t.estadoNormalizado === 'Finalizados').length;
-                    const curso = ticketsPrio.filter(t => t.estadoNormalizado === 'En Curso').length;
+                    const curso = ticketsPrio.filter(t => esEnCurso(t.estadoNormalizado)).length;
                     const pend = ticketsPrio.filter(t => t.estadoNormalizado === 'Tareas por hacer').length;
                     const pct = total > 0 ? ((fin / total) * 100).toFixed(1) : 0;
                     const tipoFiltro = document.getElementById('filter-type-selector').value;
@@ -657,7 +681,7 @@ function renderTipoCards(tickets) {
         const ticketsTipo = tickets.filter(t => t.tipoIncidencia === tipo.nombre);
         const total = ticketsTipo.length;
         const finalizados = ticketsTipo.filter(t => t.estadoNormalizado === 'Finalizados').length;
-        const enCurso = ticketsTipo.filter(t => t.estadoNormalizado === 'En Curso').length;
+        const enCurso = ticketsTipo.filter(t => esEnCurso(t.estadoNormalizado)).length;
         const pendientes = ticketsTipo.filter(t => t.estadoNormalizado === 'Tareas por hacer').length;
         const pctCompletado = total > 0 ? ((finalizados / total) * 100).toFixed(1) : '0.0';
         
@@ -772,8 +796,10 @@ function renderEvolucion() {
     
     sprintNumbers.forEach(s => {
         const tickets = sprints[s];
-        const nuevos = tickets.length;
-        const resueltos = tickets.filter(t => t.estadoNormalizado === 'Finalizados').length;
+        // Excluir Arrastrado: esos tickets se contabilizan en el sprint siguiente
+        const efectivos = tickets.filter(t => t.estado !== 'Arrastrado');
+        const nuevos = efectivos.length;
+        const resueltos = efectivos.filter(t => t.estadoNormalizado === 'Finalizados').length;
         const pendientes = nuevos - resueltos;
         totalAcumulado += nuevos;
         const pctResolucion = nuevos > 0 ? ((resueltos / nuevos) * 100).toFixed(1) : 0;
@@ -791,7 +817,7 @@ function renderEvolucion() {
     // Agregar sprints futuros si no existen (en orden descendente)
     const maxSprint = Math.max(...sprintNumbers);
     const futureRows = [];
-    for (let s = maxSprint + 1; s <= 35; s++) {
+    for (let s = maxSprint + 1; s <= 36; s++) {
         futureRows.push({
             sprint: s,
             nuevos: 0,
@@ -804,7 +830,7 @@ function renderEvolucion() {
     rows.unshift(...futureRows.reverse());
     
     tbody.innerHTML = rows.map(r => `
-        <tr ${r.sprint == 34 ? 'style="background-color: #e3f2fd; font-weight: 600;"' : ''}>
+        <tr ${r.sprint == 35 ? 'style="background-color: #e3f2fd; font-weight: 600;"' : ''}>
             <td><strong>Sprint ${r.sprint}</strong></td>
             <td><a href="#" class="clickable-number" onclick="showTicketDetails(${r.sprint}, 'nuevos'); return false;">${r.nuevos}</a></td>
             <td><a href="#" class="clickable-number" onclick="showTicketDetails(${r.sprint}, 'resueltos'); return false;">${r.resueltos}</a></td>
@@ -836,8 +862,9 @@ function renderEvolutionChartModern(data) {
     // Inicializar ECharts
     evolutionChartInstance = echarts.init(chartDom);
     
-    // Filtrar datos relevantes
-    const relevantData = data.filter(d => d.sprint <= 35);
+    // Filtrar datos relevantes: Sprint 31 en adelante (Sprint 30 tiene 779 tickets históricos que distorsionan)
+    // Ordenar ascendente para que el gráfico vaya de más antiguo (izq) a más reciente (der)
+    const relevantData = data.filter(d => d.sprint >= 31).sort((a, b) => a.sprint - b.sprint);
     
     console.log('Total tickets disponibles:', allTickets.length);
     console.log('Sprints en datos:', relevantData.map(d => d.sprint));
@@ -853,16 +880,13 @@ function renderEvolutionChartModern(data) {
         const sprintNum = d.sprint;
         sprintLabels.push(`Sprint ${sprintNum}`);
         
-        // Filtrar tickets del sprint actual - sprint es un string en los datos
+        // Filtrar tickets del sprint actual, excluyendo Arrastrado
         const sprintTickets = allTickets.filter(t => {
-            // Convertir ambos a string para comparar correctamente
             const ticketSprint = String(t.sprint);
             const targetSprint = String(sprintNum);
-            
-            // También verificar en el campo 'sprints' que puede tener múltiples sprints separados por coma
             const sprints = t.sprints ? t.sprints.split(',').map(s => s.trim()) : [];
-            
-            return ticketSprint === targetSprint || sprints.includes(targetSprint);
+            const enEsteSprint = ticketSprint === targetSprint || sprints.includes(targetSprint);
+            return enEsteSprint && t.estado !== 'Arrastrado';
         });
         
         const historias = sprintTickets.filter(t => t.tipoIncidencia === 'Historia').length;
@@ -1127,7 +1151,9 @@ function renderEvolutionChartModern(data) {
 
 function updateResumen() {
     const sprint = document.getElementById('sprint-selector-resumen').value;
-    const tickets = sprint === 'all' ? allTickets : allTickets.filter(t => t.sprint == sprint);
+    const base = sprint === 'all' ? allTickets : allTickets.filter(t => t.sprint == sprint);
+    // Excluir Arrastrado en vista por sprint: ya están en el sprint siguiente
+    const tickets = sprint === 'all' ? base : base.filter(t => t.estado !== 'Arrastrado');
     
     const matriz = {};
     const prioridades = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
@@ -1141,10 +1167,11 @@ function updateResumen() {
         });
     });
     
-    // Contar tickets
+    // Contar tickets usando bucket (agrupa estados intermedios en 'En Curso')
     tickets.forEach(t => {
-        if (matriz[t.prioridad] && estados.includes(t.estadoNormalizado)) {
-            matriz[t.prioridad][t.estadoNormalizado]++;
+        const bucket = bucketEstado(t.estadoNormalizado);
+        if (matriz[t.prioridad] && estados.includes(bucket)) {
+            matriz[t.prioridad][bucket]++;
         }
     });
     
@@ -1216,7 +1243,7 @@ function renderDistribucionPorTipo(tickets) {
         const ticketsTipo = tickets.filter(t => t.tipoIncidencia === tipo);
         const total = ticketsTipo.length;
         const finalizados = ticketsTipo.filter(t => t.estadoNormalizado === 'Finalizados').length;
-        const enCurso = ticketsTipo.filter(t => t.estadoNormalizado === 'En Curso').length;
+        const enCurso = ticketsTipo.filter(t => esEnCurso(t.estadoNormalizado)).length;
         const pendientes = ticketsTipo.filter(t => t.estadoNormalizado === 'Tareas por hacer').length;
         const pctCompletado = total > 0 ? ((finalizados / total) * 100).toFixed(1) : '0.0';
         
@@ -1716,7 +1743,7 @@ function renderFilteredIncidentes(filtered) {
         let diasRealStyle = 'font-weight: bold;';
         if (t.estadoNormalizado === 'Finalizados') {
             diasRealStyle += ' background-color: #c8e6c9;'; // Verde si finalizado
-        } else if (t.estadoNormalizado === 'En Curso') {
+        } else if (esEnCurso(t.estadoNormalizado)) {
             diasRealStyle += ' background-color: #fff9c4;'; // Amarillo si en curso
         }
         
@@ -1730,7 +1757,7 @@ function renderFilteredIncidentes(filtered) {
             <td data-field="estadoNormalizado">
                 <select class="estado-select" onchange="cambiarEstado('${t.clave}', this.value)" style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 4px; background: white;">
                     <option value="Tareas por hacer" ${t.estadoNormalizado === 'Tareas por hacer' ? 'selected' : ''}>Tareas por hacer</option>
-                    <option value="En curso" ${t.estadoNormalizado === 'En Curso' ? 'selected' : ''}>En curso</option>
+                    <option value="En curso" ${esEnCurso(t.estadoNormalizado) ? 'selected' : ''}>En curso</option>
                     <option value="Finalizados" ${t.estadoNormalizado === 'Finalizados' ? 'selected' : ''}>Finalizados</option>
                 </select>
             </td>
@@ -2011,8 +2038,8 @@ function updateFooterStats() {
 // ==================== MODAL DE DETALLES DE TICKETS ====================
 
 function showTicketDetails(sprint, tipo) {
-    // Filtrar tickets del sprint
-    const ticketsSprint = allTickets.filter(t => t.sprint == sprint);
+    // Filtrar tickets del sprint, excluyendo Arrastrado (se cuentan en el sprint siguiente)
+    const ticketsSprint = allTickets.filter(t => t.sprint == sprint && t.estado !== 'Arrastrado');
     
     let ticketsFiltrados = [];
     let titulo = '';
