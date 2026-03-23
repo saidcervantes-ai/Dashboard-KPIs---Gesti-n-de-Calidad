@@ -1,9 +1,16 @@
 # Script para extraer changelog de tickets específicos de JIRA
 # Con parámetro &expand=changelog para obtener el histórico completo
 
-$jiraUrl = "https://vocali.atlassian.net"
-$email = "said.cervantes@vocali.net"
-$apiToken = $env:JIRA_API_TOKEN  # Cargar desde variable de entorno o jira_config.json
+# Cargar credenciales desde jira_config.json (excluido de Git via .gitignore)
+$configPath = Join-Path $PSScriptRoot "jira_config.json"
+if (-not (Test-Path $configPath)) {
+    Write-Error "No se encontró jira_config.json. Crea el archivo con tus credenciales (ver jira_config.example.json)."
+    exit 1
+}
+$config = Get-Content $configPath -Raw | ConvertFrom-Json
+$jiraUrl  = $config.jiraUrl
+$email    = $config.email
+$apiToken = $config.apiToken
 
 $credentials = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${email}:${apiToken}"))
 
