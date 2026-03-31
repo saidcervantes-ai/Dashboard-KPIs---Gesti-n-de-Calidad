@@ -2,7 +2,7 @@
 
 // Variables globales
 let allTickets = [];
-let currentSprint = '36';
+let currentSprint = '38';
 
 /**
  * Agrupa los estados intermedios del tablero como "En Curso" para métricas.
@@ -37,13 +37,13 @@ function initializeDashboard() {
     // Poblar selector de meses
     populateMonthSelector();
     
-    // Configurar filtros por defecto: Sprint 33 (Actual)
+    // Configurar filtros por defecto: Sprint 38 (Actual)
     const filterType = document.getElementById('filter-type-selector');
     const filterValue = document.getElementById('filter-value-selector');
     
     if (filterType && filterValue) {
         filterType.value = 'sprint';
-        filterValue.value = '33';
+        filterValue.value = '38';
     }
     
     // Actualizar footer
@@ -70,8 +70,13 @@ function cambiarTipoFiltro() {
             <option value="all">Todos los Sprints</option>
             <option value="30">Sprint 30</option>
             <option value="31">Sprint 31</option>
-            <option value="32" selected>Sprint 32 (Actual)</option>
+            <option value="32">Sprint 32</option>
             <option value="33">Sprint 33</option>
+            <option value="34">Sprint 34</option>
+            <option value="35">Sprint 35</option>
+            <option value="36">Sprint 36</option>
+            <option value="37">Sprint 37</option>
+            <option value="38" selected>Sprint 38</option>
         `;
     } else if (tipoFiltro === 'mes') {
         label.textContent = 'Seleccionar Mes:';

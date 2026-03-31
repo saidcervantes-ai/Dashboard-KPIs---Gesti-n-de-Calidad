@@ -86,18 +86,18 @@ function parsearFechaAvanzada(fechaStr) {
 function calcularKPIsAvanzados(tickets, sprintActual = null) {
     console.log('[KPIs Avanzados] Calculando con', tickets.length, 'tickets');
     
-    // Para edad de tickets, mostrar tickets arrastrados del Sprint 36 al 37
-    // (tickets que estaban en progreso y no se finalizaron en S36)
-    const sprintsAbiertos = ['36'];
+    // Para edad de tickets, mostrar tickets arrastrados del Sprint 37 al 38
+    // (tickets que estaban en progreso y no se finalizaron en S37)
+    const sprintsAbiertos = ['38'];
     
-    // KPIs de calidad: sprints cerrados acumulados (35 + 36)
-    const sprintsCalidad = ['35', '36'];
+    // KPIs de calidad: sprints cerrados acumulados (35 + 36 + 37)
+    const sprintsCalidad = ['35', '36', '37'];
     
     // Lead Time: sprints cerrados (mismo array que sprintsCalidad)
-    const SPRINTS_LEAD_TIME = ['35', '36'];
+    const SPRINTS_LEAD_TIME = ['35', '36', '37'];
     
-    // Sprints para los nuevos KPIs (31–37, sin el masivo S30)
-    const sprintsVelocidad = ['31', '32', '33', '34', '35', '36', '37'];
+    // Sprints para los nuevos KPIs (31–38, sin el masivo S30)
+    const sprintsVelocidad = ['31', '32', '33', '34', '35', '36', '37', '38'];
 
     return {
         leadTimes: SPRINTS_LEAD_TIME.map(s => ({ sprint: s, data: calcularLeadTime(tickets, s) })),
@@ -917,10 +917,14 @@ function calcularReworkPorSprint(tickets, sprint) {
 
     // Rango de fechas por sprint (para asignar reprocesos al sprint correcto)
     // Sprint 35: 16 Feb 2026 - 02 Mar 2026
-    // Sprint 36: 02 Mar 2026 - activo
+    // Sprint 36: 02 Mar 2026 - 16 Mar 2026 (completeDate: 16/03/2026 18:34)
+    // Sprint 37: 16 Mar 2026 - 30 Mar 2026 (completeDate: 30/03/2026 12:36)
+    // Sprint 38: 29 Mar 2026 - activo (startDate: 29/03/2026 06:00)
     const SPRINT_RANGES = {
-        '35': { start: new Date(2026, 1, 16, 0, 0, 0), end: new Date(2026, 2, 2, 0, 0, 0) },
-        '36': { start: new Date(2026, 2, 2, 0, 0, 0), end: null },
+        '35': { start: new Date(2026, 1, 16, 0, 0, 0),  end: new Date(2026, 2, 2, 0, 0, 0) },
+        '36': { start: new Date(2026, 2, 2, 0, 0, 0),   end: new Date(2026, 2, 16, 7, 0, 0) },
+        '37': { start: new Date(2026, 2, 16, 7, 0, 0),  end: new Date(2026, 2, 30, 12, 36, 0) },
+        '38': { start: new Date(2026, 2, 29, 6, 0, 0),  end: null },
     };
 
     function parseFechaChangelog(fechaStr) {
@@ -1473,23 +1477,24 @@ function renderErroresSprintChart(sprints, mode) {
             if (sprint.spData) {
                 const sp = sprint.spData;
 
-                // Construir desglose de bugs ordenados por SP desc
+                // Construir desglose de bugs ordenados por SP desc (incluye bugs sin SP)
                 const bugsSorted = (sprint.bugs.tickets || [])
                     .map(t => ({ clave: t.clave, sp: parseFloat(t.storyPointEstimate) || 0, resumen: t.resumen || '' }))
-                    .filter(t => t.sp > 0)
                     .sort((a, b) => b.sp - a.sp);
 
-                const maxBugSP = bugsSorted.length > 0 ? bugsSorted[0].sp : 1;
+                const maxBugSP = bugsSorted.filter(t => t.sp > 0).length > 0 ? bugsSorted.find(t => t.sp > 0).sp : 1;
                 const bugRows = bugsSorted.map(t => {
-                    const barPct = Math.round((t.sp / maxBugSP) * 100);
+                    const barPct = t.sp > 0 ? Math.round((t.sp / maxBugSP) * 100) : 0;
                     const resumenCorto = t.resumen.length > 65 ? t.resumen.substring(0, 65) + '…' : t.resumen;
+                    const spLabel = t.sp > 0 ? `${t.sp}SP` : '—';
+                    const spColor = t.sp > 0 ? '#EF4444' : '#9CA3AF';
                     return `
                     <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #F9FAFB;">
                         <span style="font-size:10px;color:#9CA3AF;width:70px;flex-shrink:0;">${t.clave}</span>
                         <div style="width:80px;height:5px;background:#FEE2E2;border-radius:3px;flex-shrink:0;overflow:hidden;">
                             <div style="width:${barPct}%;height:5px;background:#F44336;border-radius:3px;"></div>
                         </div>
-                        <span style="font-size:10px;color:#EF4444;font-weight:600;width:28px;flex-shrink:0;">${t.sp}SP</span>
+                        <span style="font-size:10px;color:${spColor};font-weight:600;width:28px;flex-shrink:0;">${spLabel}</span>
                         <span style="font-size:11px;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.resumen}">${resumenCorto}</span>
                     </div>`;
                 }).join('');
