@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard KPIs - Gestión de Calidad (Sprints 30-32)</title>
+    <link rel="stylesheet" href="resources/sheet.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        
+        .tab-container {
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .tabs {
+            display: flex;
+            background-color: #0070c0;
+            padding: 0;
+            margin: 0;
+            list-style: none;
+            overflow-x: auto;
+        }
+        
+        .tabs li {
+            padding: 15px 30px;
+            cursor: pointer;
+            color: white;
+            border-right: 1px solid rgba(255,255,255,0.2);
+            white-space: nowrap;
+            transition: background-color 0.3s;
+        }
+        
+        .tabs li:hover {
+            background-color: #005a9e;
+        }
+        
+        .tabs li.active {
+            background-color: #fff;
+            color: #0070c0;
+            font-weight: bold;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 20px;
+            background-color: white;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .header-info {
+            background: linear-gradient(135deg, #0070c0 0%, #0050a0 100%);
+            color: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        
+        .header-info h1 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+        
+        .header-info p {
+            margin: 5px 0;
+            opacity: 0.9;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+            background-color: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        table th {
+            background-color: #0070c0;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+        
+        table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        table tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .kpi-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #0070c0;
+        }
+        
+        .kpi-card .label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+        
+        .kpi-card .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #0070c0;
+            margin-bottom: 5px;
+        }
+        
+        .kpi-card .status {
+            font-size: 14px;
+            padding: 4px 8px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+        
+        .status-cumple {
+            background-color: #92d050;
+            color: #000;
+        }
+        
+        .status-revisar {
+            background-color: #ffc000;
+            color: #000;
+        }
+        
+        .status-critico {
+            background-color: #ff0000;
+            color: #fff;
+        }
+        
+        .sprint-selector {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+        }
+        
+        .sprint-selector label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .sprint-selector select {
+            padding: 8px 15px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="tab-container">
+        <ul class="tabs">
+            <li class="active" onclick="showTab('dashboard')">📊 Dashboard KPIs</li>
+            <li onclick="showTab('evolucion')">📈 Evolución Sprint</li>
+            <li onclick="showTab('resumen')">📑 Resumen</li>
+            <li onclick="showTab('incidentes')">🐛 Incidentes</li>
+            <li onclick="showTab('instrucciones')">📖 Instrucciones</li>
+        </ul>
+    </div>
+    
+    <!-- TAB: DASHBOARD KPIS -->
+    <div id="dashboard" class="tab-content active">
+        <div class="header-info">
+            <h1>📊 Dashboard de KPIs - Gestión de Calidad</h1>
+            <p><strong>Última Actualización:</strong> 20/01/2026 10:00</p>
+            <p><strong>Fuente:</strong> JIRA - 294 tickets totales</p>
+        </div>
+        
+        <div class="sprint-selector">
+            <label for="sprint-selector-dashboard">Seleccionar Sprint:</label>
+            <select id="sprint-selector-dashboard" onchange="updateDashboard(this.value)">
+                <option value="30">Sprint 30</option>
+                <option value="31">Sprint 31</option>
+                <option value="32" selected>Sprint 32 (Actual)</option>
+            </select>
+        </div>
+        
+        <div id="dashboard-content-30" style="display:none;">
+            <h2>KPIs Sprint 30</h2>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="label">Total Incidentes</div>
+                    <div class="value">234</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">% Finalizados</div>
+                    <div class="value">88.9%</div>
+                    <div class="status status-cumple">✓ Cumple</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">% En Curso</div>
+                    <div class="value">1.7%</div>
+                    <div class="status status-cumple">✓ Cumple</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Highest Abiertos</div>
+                    <div class="value">0</div>
+                    <div class="status status-cumple">✓ Cumple</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Backlog</div>
+                    <div class="value">22</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Tiempo Highest</div>
+                    <div class="value">16.8 días</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Tiempo High</div>
+                    <div class="value">13.5 días</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Tasa Reapertura</div>
+                    <div class="value">0%</div>
+                    <div class="status status-cumple">✓ Cumple</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Cobertura Resolución</div>
+                    <div class="value">88.9%</div>
+                    <div class="status status-cumple">✓ Cumple</div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="dashboard-content-31" style="display:none;">
+            <h2>KPIs Sprint 31</h2>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="label">Total Incidentes</div>
+                    <div class="value">244</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">% Finalizados</div>
+                    <div class="value">79.5%</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">% En Curso</div>
+                    <div class="value">1.6%</div>
+                    <div class="status status-cumple">✓ Cumple</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Highest Abiertos</div>
+                    <div class="value">1</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Backlog</div>
+                    <div class="value">46</div>
+                    <div class="status status-critico">⚠ CRÍTICO</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Tiempo Highest</div>
+                    <div class="value">17.2 días</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Tiempo High</div>
+                    <div class="value">14.1 días</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Tasa Reapertura</div>
+                    <div class="value">0%</div>
+                    <div class="status status-cumple">✓ Cumple</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Cobertura Resolución</div>
+                    <div class="value">79.5%</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="dashboard-content-32">
+            <h2>KPIs Sprint 32 (Actual)</h2>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="label">Total Incidentes</div>
+                    <div class="value">294</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">% Finalizados</div>
+                    <div class="value">70.1%</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">% En Curso</div>
+                    <div class="value">1.4%</div>
+                    <div class="status status-cumple">✓ Cumple</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Highest Abiertos</div>
+                    <div class="value">2</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Backlog</div>
+                    <div class="value">84</div>
+                    <div class="status status-critico">⚠ CRÍTICO</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Tiempo Highest</div>
+                    <div class="value">18.5 días</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Tiempo High</div>
+                    <div class="value">15.2 días</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Tasa Reapertura</div>
+                    <div class="value">0%</div>
+                    <div class="status status-cumple">✓ Cumple</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Cobertura Resolución</div>
+                    <div class="value">70.1%</div>
+                    <div class="status status-revisar">⚠ Revisar</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- TAB: EVOLUCIÓN SPRINT -->
+    <div id="evolucion" class="tab-content">
+        <div class="header-info">
+            <h1>📈 Evolución por Sprint</h1>
+            <p>Seguimiento de incidentes a través de los Sprints 30-35</p>
+        </div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Sprint</th>
+                    <th>Nuevos</th>
+                    <th>Resueltos</th>
+                    <th>Pendientes</th>
+                    <th>Total Acumulado</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Sprint 30</strong></td>
+                    <td>60</td>
+                    <td>-52</td>
+                    <td>8</td>
+                    <td>234</td>
+                </tr>
+                <tr>
+                    <td><strong>Sprint 31</strong></td>
+                    <td>50</td>
+                    <td>-40</td>
+                    <td>10</td>
+                    <td>244</td>
+                </tr>
+                <tr style="background-color: #e3f2fd;">
+                    <td><strong>Sprint 32 (Actual)</strong></td>
+                    <td>60</td>
+                    <td>-10</td>
+                    <td>50</td>
+                    <td>294</td>
+                </tr>
+                <tr>
+                    <td><strong>Sprint 33</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                    <td>0</td>
+                    <td>294</td>
+                </tr>
+                <tr>
+                    <td><strong>Sprint 34</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                    <td>0</td>
+                    <td>294</td>
+                </tr>
+                <tr>
+                    <td><strong>Sprint 35</strong></td>
+                    <td>0</td>
+                    <td>0</td>
+                    <td>0</td>
+                    <td>294</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>Tendencia de Acumulación</h3>
+        <p>El gráfico muestra un incremento sostenido del backlog desde Sprint 30 hasta Sprint 32, pasando de 234 a 294 tickets totales (+25.6%). La cantidad de tickets resueltos por sprint ha disminuido significativamente.</p>
+    </div>
+    
+    <!-- TAB: RESUMEN -->
+    <div id="resumen" class="tab-content">
+        <div class="header-info">
+            <h1>📑 Resumen Consolidado</h1>
+            <p>Distribución de incidentes por prioridad y estado</p>
+        </div>
+        
+        <div class="sprint-selector">
+            <label for="sprint-selector-resumen">Seleccionar Sprint:</label>
+            <select id="sprint-selector-resumen" onchange="updateResumen(this.value)">
+                <option value="30">Sprint 30</option>
+                <option value="31">Sprint 31</option>
+                <option value="32" selected>Sprint 32 (Actual)</option>
+            </select>
+        </div>
+        
+        <div id="resumen-content-32">
+            <h3>Sprint 32 - Distribución por Estado y Prioridad</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Estado / Prioridad</th>
+                        <th>Highest</th>
+                        <th>High</th>
+                        <th>Medium</th>
+                        <th>Low</th>
+                        <th>TOTAL</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Tareas por hacer</strong></td>
+                        <td>2</td>
+                        <td>10</td>
+                        <td>64</td>
+                        <td>8</td>
+                        <td><strong>84</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>En curso</strong></td>
+                        <td>0</td>
+                        <td>1</td>
+                        <td>3</td>
+                        <td>0</td>
+                        <td><strong>4</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Finalizados</strong></td>
+                        <td>15</td>
+                        <td>30</td>
+                        <td>149</td>
+                        <td>12</td>
+                        <td><strong>206</strong></td>
+                    </tr>
+                    <tr style="background-color: #f0f0f0; font-weight: bold;">
+                        <td><strong>TOTAL</strong></td>
+                        <td><strong>17</strong></td>
+                        <td><strong>41</strong></td>
+                        <td><strong>216</strong></td>
+                        <td><strong>20</strong></td>
+                        <td><strong>294</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="resumen-content-31" style="display:none;">
+            <h3>Sprint 31 - Distribución por Estado y Prioridad</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Estado / Prioridad</th>
+                        <th>Highest</th>
+                        <th>High</th>
+                        <th>Medium</th>
+                        <th>Low</th>
+                        <th>TOTAL</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Tareas por hacer</strong></td>
+                        <td>1</td>
+                        <td>8</td>
+                        <td>32</td>
+                        <td>5</td>
+                        <td><strong>46</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>En curso</strong></td>
+                        <td>0</td>
+                        <td>1</td>
+                        <td>3</td>
+                        <td>0</td>
+                        <td><strong>4</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Finalizados</strong></td>
+                        <td>14</td>
+                        <td>28</td>
+                        <td>140</td>
+                        <td>12</td>
+                        <td><strong>194</strong></td>
+                    </tr>
+                    <tr style="background-color: #f0f0f0; font-weight: bold;">
+                        <td><strong>TOTAL</strong></td>
+                        <td><strong>15</strong></td>
+                        <td><strong>37</strong></td>
+                        <td><strong>175</strong></td>
+                        <td><strong>17</strong></td>
+                        <td><strong>244</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="resumen-content-30" style="display:none;">
+            <h3>Sprint 30 - Distribución por Estado y Prioridad</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Estado / Prioridad</th>
+                        <th>Highest</th>
+                        <th>High</th>
+                        <th>Medium</th>
+                        <th>Low</th>
+                        <th>TOTAL</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Tareas por hacer</strong></td>
+                        <td>0</td>
+                        <td>4</td>
+                        <td>16</td>
+                        <td>2</td>
+                        <td><strong>22</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>En curso</strong></td>
+                        <td>0</td>
+                        <td>1</td>
+                        <td>3</td>
+                        <td>0</td>
+                        <td><strong>4</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Finalizados</strong></td>
+                        <td>13</td>
+                        <td>26</td>
+                        <td>155</td>
+                        <td>14</td>
+                        <td><strong>208</strong></td>
+                    </tr>
+                    <tr style="background-color: #f0f0f0; font-weight: bold;">
+                        <td><strong>TOTAL</strong></td>
+                        <td><strong>13</strong></td>
+                        <td><strong>31</strong></td>
+                        <td><strong>174</strong></td>
+                        <td><strong>16</strong></td>
+                        <td><strong>234</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- TAB: INCIDENTES -->
+    <div id="incidentes" class="tab-content">
+        <div class="header-info">
+            <h1>🐛 Lista Detallada de Incidentes</h1>
+            <p>Registro completo de todos los tickets - 294 incidentes totales</p>
+        </div>
+        
+        <p><strong>Nota:</strong> Esta vista muestra todos los incidentes consolidados de los Sprints 30, 31 y 32.</p>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Clave</th>
+                    <th>Prioridad</th>
+                    <th>Estado</th>
+                    <th>Sprint</th>
+                    <th>Asignado</th>
+                    <th>Creada</th>
+                    <th>Resuelta</th>
+                    <th>Días Resolución</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>SRG-177</strong></td>
+                    <td>Medium</td>
+                    <td>Tareas por hacer</td>
+                    <td>Sprint 30</td>
+                    <td>Eduardo Lupiani</td>
+                    <td>01/ago/16</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+                <tr>
+                    <td colspan="8" style="text-align: center; padding: 20px; color: #666;">
+                        <em>Mostrando muestra de datos. Total: 294 incidentes.</em><br>
+                        <em>Para ver el listado completo, consulte el archivo CSV exportado.</em>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- TAB: INSTRUCCIONES -->
+    <div id="instrucciones" class="tab-content">
+        <div class="header-info">
+            <h1>📖 Instrucciones de Uso</h1>
+            <p>Guía para utilizar el Dashboard de KPIs</p>
+        </div>
+        
+        <h3>1. Navegación del Dashboard</h3>
+        <p>Use las pestañas en la parte superior para navegar entre las diferentes secciones:</p>
+        <ul>
+            <li><strong>Dashboard KPIs:</strong> Vista general de métricas clave por sprint</li>
+            <li><strong>Evolución Sprint:</strong> Seguimiento histórico de incidentes</li>
+            <li><strong>Resumen:</strong> Matrices de distribución por prioridad y estado</li>
+            <li><strong>Incidentes:</strong> Lista detallada de todos los tickets</li>
+            <li><strong>Instrucciones:</strong> Esta sección de ayuda</li>
+        </ul>
+        
+        <h3>2. Selección de Sprint</h3>
+        <p>En las secciones Dashboard y Resumen, puede seleccionar el sprint específico usando el selector desplegable.</p>
+        
+        <h3>3. Interpretación de KPIs</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>KPI</th>
+                    <th>Meta</th>
+                    <th>Descripción</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>% Finalizados</td>
+                    <td>&gt; 80%</td>
+                    <td>Porcentaje de incidentes completamente resueltos</td>
+                </tr>
+                <tr>
+                    <td>% En Curso</td>
+                    <td>&lt; 20%</td>
+                    <td>Porcentaje de incidentes actualmente en progreso</td>
+                </tr>
+                <tr>
+                    <td>Highest Abiertos</td>
+                    <td>0</td>
+                    <td>Cantidad de incidentes de máxima prioridad sin resolver</td>
+                </tr>
+                <tr>
+                    <td>Backlog</td>
+                    <td>&lt; 5</td>
+                    <td>Cantidad de incidentes pendientes de iniciar</td>
+                </tr>
+                <tr>
+                    <td>Tiempo Highest</td>
+                    <td>&lt; 2 días</td>
+                    <td>Tiempo promedio de resolución para prioridad Highest</td>
+                </tr>
+                <tr>
+                    <td>Tiempo High</td>
+                    <td>&lt; 5 días</td>
+                    <td>Tiempo promedio de resolución para prioridad High</td>
+                </tr>
+                <tr>
+                    <td>Tasa Reapertura</td>
+                    <td>&lt; 5%</td>
+                    <td>Porcentaje de incidentes que se reabren</td>
+                </tr>
+                <tr>
+                    <td>Cobertura Resolución</td>
+                    <td>&gt; 90%</td>
+                    <td>Porcentaje de incidentes del sprint que se resuelven</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>4. Estados de Cumplimiento</h3>
+        <ul>
+            <li><span class="status status-cumple">✓ Cumple</span> - El KPI está dentro de la meta establecida</li>
+            <li><span class="status status-revisar">⚠ Revisar</span> - El KPI requiere atención</li>
+            <li><span class="status status-critico">⚠ CRÍTICO</span> - El KPI está en estado crítico</li>
+        </ul>
+        
+        <h3>5. Actualización de Datos</h3>
+        <p>Los datos se actualizan automáticamente cuando se importa el archivo de Jira. La última actualización se muestra en el encabezado de cada sección.</p>
+        
+        <h3>6. Criterios de Sprint</h3>
+        <p><strong>Importante:</strong> Todos los incidentes detectados en sprints anteriores al Sprint 30 se asignan automáticamente al Sprint 30 para mantener la consistencia histórica.</p>
+    </div>
+    
+    <script>
+        function showTab(tabName) {
+            // Ocultar todos los contenidos
+            var contents = document.getElementsByClassName('tab-content');
+            for (var i = 0; i < contents.length; i++) {
+                contents[i].classList.remove('active');
+            }
+            
+            // Desactivar todas las pestañas
+            var tabs = document.querySelectorAll('.tabs li');
+            for (var i = 0; i < tabs.length; i++) {
+                tabs[i].classList.remove('active');
+            }
+            
+            // Activar la pestaña seleccionada
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        function updateDashboard(sprint) {
+            // Ocultar todos los dashboards
+            document.getElementById('dashboard-content-30').style.display = 'none';
+            document.getElementById('dashboard-content-31').style.display = 'none';
+            document.getElementById('dashboard-content-32').style.display = 'none';
+            
+            // Mostrar el dashboard seleccionado
+            document.getElementById('dashboard-content-' + sprint).style.display = 'block';
+        }
+        
+        function updateResumen(sprint) {
+            // Ocultar todos los resúmenes
+            document.getElementById('resumen-content-30').style.display = 'none';
+            document.getElementById('resumen-content-31').style.display = 'none';
+            document.getElementById('resumen-content-32').style.display = 'none';
+            
+            // Mostrar el resumen seleccionado
+            document.getElementById('resumen-content-' + sprint).style.display = 'block';
+        }
+    </script>
+</body>
+</html>

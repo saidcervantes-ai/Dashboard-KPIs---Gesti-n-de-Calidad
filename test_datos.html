@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test KPIs Avanzados</title>
+</head>
+<body>
+    <h1>Test de Carga de Datos</h1>
+    <div id="output"></div>
+    
+    <script src="dashboard_data.js"></script>
+    <script>
+        const output = document.getElementById('output');
+        
+        output.innerHTML += '<p>1. ticketsData definido: ' + (typeof ticketsData !== 'undefined') + '</p>';
+        output.innerHTML += '<p>2. Es array: ' + Array.isArray(ticketsData) + '</p>';
+        output.innerHTML += '<p>3. Cantidad: ' + (ticketsData ? ticketsData.length : 0) + '</p>';
+        
+        if (ticketsData && ticketsData.length > 0) {
+            const primer = ticketsData[0];
+            output.innerHTML += '<p>4. Primer ticket:</p>';
+            output.innerHTML += '<pre>' + JSON.stringify(primer, null, 2) + '</pre>';
+            
+            output.innerHTML += '<p>5. Campos del primer ticket:</p>';
+            output.innerHTML += '<ul>';
+            for (let key in primer) {
+                output.innerHTML += '<li>' + key + ': ' + primer[key] + '</li>';
+            }
+            output.innerHTML += '</ul>';
+            
+            // Verificar tickets finalizados
+            const finalizados = ticketsData.filter(t => t.estadoNormalizado === 'Finalizados');
+            output.innerHTML += '<p>6. Tickets finalizados: ' + finalizados.length + '</p>';
+            
+            // Verificar tickets con resuelta
+            const conResuelta = ticketsData.filter(t => t.resuelta && t.resuelta !== '');
+            output.innerHTML += '<p>7. Tickets con fecha resuelta: ' + conResuelta.length + '</p>';
+            
+            // Ver algunos ejemplos
+            output.innerHTML += '<p>8. Ejemplo de ticket finalizado:</p>';
+            if (finalizados.length > 0) {
+                output.innerHTML += '<pre>' + JSON.stringify(finalizados[0], null, 2) + '</pre>';
+            }
+        }
+    </script>
+</body>
+</html>

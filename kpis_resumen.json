@@ -1,0 +1,22 @@
+﻿{
+    "TotalIncidentes":  199,
+    "Finalizados":  152,
+    "EnCurso":  47,
+    "Pendientes":  0,
+    "PctFinalizados":  76.4,
+    "PctEnCurso":  23.6,
+    "Backlog":  0,
+    "HighestTotal":  7,
+    "HighTotal":  12,
+    "MediumTotal":  178,
+    "LowTotal":  null,
+    "HighestAbiertos":  2,
+    "CoberturaResolucion":  72.3,
+    "SprintActivo":  38,
+    "SprintCerrado":  37,
+    "TiempoHighest":  3.8,
+    "TiempoHigh":  50.2,
+    "TiempoMedium":  16.3,
+    "TiempoLow":  Infinity,
+    "FechaActualizacion":  "31/03/2026 16:47"
+}

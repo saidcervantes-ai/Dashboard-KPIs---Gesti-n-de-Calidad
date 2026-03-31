@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test PRD Debug</title>
+</head>
+<body>
+    <h1>Test PRD Debug</h1>
+    <button onclick="testPRD()">Test PRD Data</button>
+    <div id="output"></div>
+
+    <!-- Cargar datos PRD -->
+    <script src="dashboard_data_prd.js"></script>
+    
+    <script>
+        function testPRD() {
+            const output = document.getElementById('output');
+            let html = '<h2>Resultados del Test:</h2>';
+            
+            html += '<p><strong>bugsPRD definido:</strong> ' + (typeof bugsPRD !== 'undefined') + '</p>';
+            
+            if (typeof bugsPRD !== 'undefined') {
+                html += '<p><strong>bugsPRD length:</strong> ' + bugsPRD.length + '</p>';
+                
+                // Test filtro por mes
+                const enero2026 = bugsPRD.filter(b => b.mes === 'Enero 2026');
+                html += '<p><strong>Bugs Enero 2026:</strong> ' + enero2026.length + '</p>';
+                
+                // Test filtro por prioridad Medium
+                const medium = bugsPRD.filter(b => b.prioridad === 'Medium');
+                html += '<p><strong>Bugs Medium:</strong> ' + medium.length + '</p>';
+                
+                // Test combinado
+                const eneroMedium = bugsPRD.filter(b => b.mes === 'Enero 2026' && b.prioridad === 'Medium');
+                html += '<p><strong>Bugs Enero 2026 + Medium:</strong> ' + eneroMedium.length + '</p>';
+                
+                if (eneroMedium.length > 0) {
+                    html += '<h3>Detalles del bug encontrado:</h3>';
+                    html += '<pre>' + JSON.stringify(eneroMedium[0], null, 2) + '</pre>';
+                }
+                
+                // Mostrar todos los bugs de enero
+                html += '<h3>Todos los bugs de Enero 2026:</h3>';
+                enero2026.forEach(bug => {
+                    html += '<p>' + bug.clave + ' - ' + bug.prioridad + ' - ' + bug.estado + ' - ' + bug.mes + '</p>';
+                });
+            }
+            
+            output.innerHTML = html;
+            console.log('Test completado');
+        }
+        
+        // Auto ejecutar cuando carga la página
+        window.onload = function() {
+            testPRD();
+        };
+    </script>
+</body>
+</html>

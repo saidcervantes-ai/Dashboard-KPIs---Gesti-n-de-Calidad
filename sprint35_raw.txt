@@ -1,0 +1,77 @@
+﻿IMS-1112|Tarea|Finalizada|Fernando Molina|Medium|2026-02-25|2026-02-27T08:00:38.186+0100|2026-02-27|0.5
+IMS-1105|Error|Finalizada|Alex Gutiérrez|Medium|2026-02-19|2026-02-26T09:53:27.217+0100|2026-02-26|
+IMS-1108|Error|Finalizada|Inés Esteve Mompó|Medium|2026-02-20|2026-02-26T09:35:16.966+0100|2026-02-26|2.0
+IMS-885|Error|Finalizada|Fernando Molina|Medium|2025-12-01|2026-02-26T08:48:06.627+0100|2026-02-26|0.5
+IMS-1071|Tarea|Blocked|Carlos del Cerro Escudero|Medium|2026-02-06||2026-03-02|5.0
+IMS-990|Tarea|In Process|Carlos del Cerro Escudero|Medium|2026-01-21||2026-03-02|5.0
+IMS-1087|Tarea|IN TEST DEV|Pedro del Río|Medium|2026-02-13||2026-03-03|1.0
+IMS-984|Tarea|IN TEST DEV|Carlos del Cerro Escudero|Medium|2026-01-21||2026-03-02|3.0
+IMS-860|Error|Finalizada|Pedro Vivancos|Medium|2025-11-24|2026-02-18T08:20:16.342+0100|2026-02-18|1.0
+IMS-1093|Tarea|Finalizada|Carlos del Cerro Escudero|Medium|2026-02-16|2026-02-20T10:41:12.818+0100|2026-02-20|2.0
+IMS-966|Tarea|Finalizada|Inés Esteve Mompó|Medium|2026-01-20|2026-02-23T11:23:15.885+0100|2026-02-23|3.0
+IMS-1090|Tarea|Finalizada|Pedro del Río|Medium|2026-02-13|2026-02-23T13:54:46.829+0100|2026-02-23|3.0
+IMS-879|Error|Finalizada|Pedro Vivancos|Medium|2025-11-25|2026-02-18T08:37:50.317+0100|2026-02-18|3.0
+IMS-1003|Tarea|Finalizada|Alejandro Arija Coque|Medium|2026-01-22|2026-02-19T13:49:40.893+0100|2026-02-19|2.0
+IMS-877|Tarea|Finalizada|Rafael Bomate|High|2025-11-25|2026-02-18T17:44:51.318+0100|2026-02-18|2.0
+IMS-1036|Tarea|IN TEST DEV|Juan Salvador Castejón Garrido|Medium|2026-01-30||2026-03-02|8.0
+IMS-1081|Error|Finalizada|Alejandro Arija Coque|Medium|2026-02-11|2026-02-17T09:23:50.331+0100|2026-02-17|3.0
+IMS-1033|Tarea|Finalizada|Pedro Vivancos|Medium|2026-01-29|2026-02-17T11:20:34.552+0100|2026-02-17|3.0
+IMS-1106|Error|Finalizada|Pedro del Río|Medium|2026-02-19|2026-02-20T10:59:13.443+0100|2026-02-20|1.0
+IMS-1092|Error|Finalizada|Inés Esteve Mompó|Medium|2026-02-16|2026-02-18T08:38:21.093+0100|2026-02-18|2.0
+IMS-876|Tarea|Finalizada|Inés Esteve Mompó|High|2025-11-25|2026-02-18T17:09:52.843+0100|2026-02-18|3.0
+IMS-998|Tarea|IN TEST DEV|Pedro Vivancos|Medium|2026-01-21||2026-03-03|5.0
+IMS-1078|Tarea|In Process|Juan Salvador Castejón Garrido|Medium|2026-02-10||2026-03-02|3.0
+IMS-777|Historia|Blocked|Pedro del Río|High|2025-10-16||2026-03-02|1.0
+IMS-1096|Error|Finalizada|Pedro del Río|Medium|2026-02-17|2026-02-20T09:51:38.778+0100|2026-02-20|0.5
+IMS-970|Tarea|Finalizada|Pedro del Río|High|2026-01-20|2026-02-18T08:59:03.304+0100|2026-02-18|0.5
+IMS-974|Tarea|Finalizada|Pedro del Río|High|2026-01-20|2026-02-18T09:18:18.305+0100|2026-02-18|1.0
+IMS-878|Tarea|Finalizada|Rafael Bomate|High|2025-11-25|2026-02-18T08:44:59.554+0100|2026-02-18|2.0
+IMS-1082|Error|Finalizada|Pedro del Río|High|2026-02-11|2026-02-18T09:30:03.617+0100|2026-02-19|1.0
+IMS-1052|Error|Finalizada|Pedro del Río|Medium|2026-02-02|2026-02-18T09:25:54.861+0100|2026-02-18|2.0
+IMS-1017|Tarea|Finalizada|Alex Gutiérrez|Medium|2026-01-22|2026-02-23T09:35:28.776+0100|2026-02-23|2.0
+IMS-1101|Error|Finalizada|Rafael Bomate|Medium|2026-02-18|2026-02-19T13:59:56.625+0100|2026-02-19|0.5
+IMS-1045|Tarea|IN TEST DEV|Pedro del Río|Medium|2026-01-30||2026-03-02|2.0
+IMS-1115|Error|Test Issues|Pedro del Río|Medium|2026-02-25||2026-03-02|0.5
+IMS-1044|Tarea|IN TEST DEV|Pedro del Río|Medium|2026-01-30||2026-03-02|2.0
+IMS-874|Tarea|CODE REVIEW|Pedro del Río|Medium|2025-11-25||2026-03-02|8.0
+IMS-993|Tarea|IN TEST DEV|Inés Esteve Mompó|Medium|2026-01-21||2026-03-03|1.0
+IMS-992|Tarea|IN TEST DEV|Inés Esteve Mompó|Medium|2026-01-21||2026-03-03|3.0
+IMS-994|Tarea|IN TEST DEV|Inés Esteve Mompó|Medium|2026-01-21||2026-03-03|1.0
+IMS-987|Tarea|In Process|Alex Gutiérrez|Medium|2026-01-21||2026-03-02|3.0
+IMS-1095|Error|Finalizada|Rafael Bomate|Medium|2026-02-17|2026-02-23T09:46:39.978+0100|2026-02-23|0.5
+IMS-1099|Error|Finalizada|Pedro del Río|Medium|2026-02-18|2026-02-19T14:15:23.687+0100|2026-02-19|0.5
+IMS-1100|Error|Finalizada|Rafael Bomate|Medium|2026-02-18|2026-02-23T09:47:35.239+0100|2026-02-23|1.0
+IMS-1103|Error|Finalizada|Rafael Bomate|Medium|2026-02-19|2026-02-23T10:18:43.521+0100|2026-02-23|1.0
+IMS-1097|Tarea|Finalizada|Pedro del Río|Medium|2026-02-18|2026-02-23T09:58:57.105+0100|2026-02-23|0.5
+IMS-1102|Tarea|Finalizada|Pedro del Río|Medium|2026-02-18|2026-02-23T09:47:38.039+0100|2026-02-23|0.5
+IMS-1064|Error|Finalizada|Pedro del Río|Medium|2026-02-03|2026-02-18T09:37:13.611+0100|2026-02-18|1.0
+IMS-1079|Error|Finalizada|Alex Gutiérrez|Medium|2026-02-11|2026-02-17T10:37:44.617+0100|2026-02-17|0.5
+IMS-1051|Error|Finalizada|Alex Gutiérrez|Highest|2026-02-02|2026-02-19T10:31:34.253+0100|2026-02-19|3.0
+IMS-1080|Tarea|Tareas por hacer|Alex Gutiérrez|Medium|2026-02-11||2026-03-02|2.0
+IMS-1069|Error|Tareas por hacer|Alex Gutiérrez|Medium|2026-02-05||2026-03-02|1.0
+IMS-1084|Error|Finalizada|Alejandro Arija Coque|Medium|2026-02-12|2026-02-13T12:26:18.389+0100|2026-02-26|1.0
+IMS-1094|Tarea|Finalizada|Rafael Bomate|Medium|2026-02-16|2026-02-17T10:50:34.879+0100|2026-02-17|0.5
+IMS-1072|Tarea|IN TEST DEV|Alejandro Arija Coque|Medium|2026-02-06||2026-03-02|2.0
+IMS-894|Historia|IN TEST DEV|Alejandro Arija Coque|Medium|2025-12-05||2026-03-02|2.0
+IMS-1007|Tarea|Test Issues|Alejandro Arija Coque|Medium|2026-01-22||2026-03-03|1.0
+IMS-897|Historia|Test Issues|Alejandro Arija Coque|Medium|2025-12-05||2026-03-03|1.0
+IMS-1012|Tarea|IN TEST DEV|Alejandro Arija Coque|Medium|2026-01-22||2026-03-02|3.0
+IMS-963|Tarea|CODE REVIEW|Pedro del Río|Medium|2026-01-20||2026-03-02|1.0
+IMS-954|Tarea|CODE REVIEW|Pedro del Río|Medium|2026-01-19||2026-03-02|4.0
+IMS-1046|Tarea|CODE REVIEW|Pedro del Río|Medium|2026-01-30||2026-03-02|2.0
+IMS-1104|Error|Finalizada|Alex Gutiérrez|Medium|2026-02-19|2026-02-26T09:39:12.099+0100|2026-02-26|2.0
+IMS-1098|Tarea|In Process|Inés Esteve Mompó|Medium|2026-02-18||2026-03-02|8.0
+IMS-1109|Error|Finalizada|Rafael Bomate|Medium|2026-02-23|2026-02-23T17:09:47.489+0100|2026-02-23|1.0
+IMS-1110|Tarea|Finalizada|Rafael Bomate|Medium|2026-02-25|2026-02-25T08:35:24.610+0100|2026-02-25|0.5
+IMS-1111|Error|Finalizada|Rafael Bomate|Medium|2026-02-25|2026-02-27T09:14:25.463+0100|2026-02-27|2.0
+IMS-1113|Error|Tareas por hacer|Alex Gutiérrez|Medium|2026-02-25||2026-03-02|1.0
+IMS-1117|Error|Finalizada|Alex Gutiérrez|Medium|2026-02-26|2026-02-27T09:31:47.447+0100|2026-02-27|4.0
+IMS-1001|Tarea|Tareas por hacer|Juan Salvador Castejón Garrido|Medium|2026-01-21||2026-03-02|5.0
+IMS-1043|Tarea|Tareas por hacer|Carlos del Cerro Escudero|Medium|2026-01-30||2026-03-02|3.0
+IMS-997|Tarea|Tareas por hacer|Pedro Vivancos|Medium|2026-01-21||2026-03-02|3.0
+IMS-999|Tarea|In Process|Pedro Vivancos|Medium|2026-01-21||2026-03-03|3.0
+IMS-1127|Tarea|In Test|Said Cervantes Correa|Medium|2026-02-27||2026-03-02|
+IMS-1089|Tarea|Finalizada|Alejandro Arija Coque|Medium|2026-02-13|2026-03-03T08:22:35.653+0100|2026-03-03|1.0
+IMS-1050|Tarea|Finalizada|Pedro del Río|Medium|2026-01-30|2026-03-02T18:32:36.663+0100|2026-03-02|0.5
+IMS-1128|Tarea|Finalizada|Rafael Bomate|Medium|2026-02-27|2026-02-27T09:40:57.187+0100|2026-02-27|1.0
+IMS-1131|Error|Tareas por hacer||Medium|2026-03-02||2026-03-02|

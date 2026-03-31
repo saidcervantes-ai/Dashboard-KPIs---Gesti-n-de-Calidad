@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Test Dashboard</title>
+</head>
+<body>
+    <h1>Test de Carga de Datos</h1>
+    <div id="result"></div>
+    
+    <script src="dashboard_data.js"></script>
+    <script>
+        try {
+            document.getElementById('result').innerHTML = 
+                '<p>✅ <strong>Datos cargados correctamente!</strong></p>' +
+                '<p>Total de tickets: <strong>' + ticketsData.length + '</strong></p>' +
+                '<p>Primer ticket: ' + ticketsData[0].clave + ' - ' + ticketsData[0].resumen + '</p>' +
+                '<p>Estado del primer ticket: ' + ticketsData[0].estadoNormalizado + '</p>';
+        } catch(e) {
+            document.getElementById('result').innerHTML = 
+                '<p style="color:red">❌ Error al cargar datos: ' + e.message + '</p>';
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+DASHBOARD KPIs - SPRINT 32
+Actualización:,20/01/2026 10:00
+Fuente:,JIRA - 294 tickets procesados
+Sprint Actual:,Sprint 32
+
+MÉTRICAS PRINCIPALES
+Indicador,Valor,Descripción
+Total de Incidentes,294,+60 desde Sprint 31
+Incidentes Finalizados,206,70.1% del total
+En Curso,4,1.4% del total
+Backlog Pendiente,84,28.6% del total
+
+ESTADO DE KPIs
+Indicador,Valor Actual,Meta,Estado,Cumple Meta
+% Incidentes Finalizados,70.1%,> 80%,⚠ Revisar,NO
+% Incidentes en Curso,1.4%,< 20%,✓ Cumple,SÍ
+Highest Abiertos (Sprint Actual),2,0,⚠ Revisar,NO
+Backlog de Incidentes,84,< 5,⚠ CRÍTICO,NO
+Tasa de Reapertura,0%,< 5%,✓ Cumple,SÍ
+Cobertura de Resolución Sprint,70.1%,> 90%,⚠ Revisar,NO
+
+TIEMPO PROMEDIO DE RESOLUCIÓN POR PRIORIDAD
+Prioridad,Tiempo Promedio (días),Meta (días),Total Tickets,Estado,Cumple Meta
+Highest,18.5,< 2,17,⚠ Revisar,NO
+High,15.2,< 5,41,⚠ Revisar,NO
+Medium,22.3,< 15,216,⚠ Revisar,NO
+Low,28.7,< 30,20,✓ Cumple,SÍ
+
+DISTRIBUCIÓN POR ESTADO Y PRIORIDAD
+Estado / Prioridad,Highest,High,Medium,Low,TOTAL
+Tareas por hacer,2,10,64,8,84
+En curso,0,1,3,0,4
+Finalizados,15,30,149,12,206
+TOTAL,17,41,216,20,294
+
+DISTRIBUCIÓN PORCENTUAL POR PRIORIDAD
+Prioridad,Cantidad,Porcentaje
+Highest,17,5.8%
+High,41,13.9%
+Medium,216,73.5%
+Low,20,6.8%
+TOTAL,294,100.0%
+
+DISTRIBUCIÓN PORCENTUAL POR ESTADO
+Estado,Cantidad,Porcentaje
+Tareas por hacer,84,28.6%
+En curso,4,1.4%
+Finalizados,206,70.1%
+TOTAL,294,100.0%
+
+COMPARATIVA SPRINT 30 vs SPRINT 32
+Métrica,Sprint 30,Sprint 32,Cambio Absoluto,Cambio Porcentual
+Total Incidentes,234,294,+60,+25.6%
+Incidentes Finalizados,208,206,-2,-1.0%
+% Finalizados,88.9%,70.1%,-18.8 pp,-21.1%
+Backlog,22,84,+62,+281.8%
+Highest Abiertos,0,2,+2,N/A
+En Curso,4,4,0,0%
+
+ÁREAS DE ATENCIÓN PRIORITARIA
+Nivel,Área,Descripción,Acción Requerida
+CRÍTICO,Backlog Elevado,"El backlog de 84 incidentes está significativamente por encima de la meta (<5)",Acción inmediata para reducir backlog
+REVISAR,Tasa de Finalización Baja,"Con 70.1% de finalización, estamos por debajo del objetivo del 80%",Mejorar velocidad de resolución
+REVISAR,Tiempos de Resolución Elevados,Los tiempos promedio exceden las metas en Highest/High/Medium,Revisar proceso de gestión de incidentes
+POSITIVO,Tasa de Reapertura,La tasa de reapertura es 0%,Mantener calidad de soluciones
+
+RECOMENDACIONES
+Prioridad,Recomendación,Objetivo
+1,Implementar estrategia urgente para reducir los 84 incidentes pendientes,Reducir backlog a <5
+2,Revisar procesos para prioridades altas y reducir tiempos de resolución,Cumplir metas de tiempo por prioridad
+3,Cerrar inmediatamente los 2 incidentes de prioridad Highest abiertos,Highest abiertos = 0
+4,Trabajar para alcanzar el 80% de finalización mínimo,Aumentar de 70.1% a >80%
+5,Continuar con las buenas prácticas que mantienen la tasa de reapertura en 0%,Mantener 0% de reapertura
+
+TENDENCIA POR SPRINT (Sprints 30-35)
+Sprint,Nuevos,Resueltos,Pendientes,Total Acumulado
+Sprint 30,60,-52,8,234
+Sprint 31,50,-48,10,244
+Sprint 32,60,-2,62,294
+Sprint 33,0,0,0,294
+Sprint 34,0,0,0,294
+Sprint 35,0,0,0,294
+
+DETALLE DE INCIDENTES POR PRIORIDAD Y ESTADO
+Combinación,Cantidad,Porcentaje del Total
+Highest - Tareas por hacer,2,0.7%
+Highest - En curso,0,0.0%
+Highest - Finalizados,15,5.1%
+High - Tareas por hacer,10,3.4%
+High - En curso,1,0.3%
+High - Finalizados,30,10.2%
+Medium - Tareas por hacer,64,21.8%
+Medium - En curso,3,1.0%
+Medium - Finalizados,149,50.7%
+Low - Tareas por hacer,8,2.7%
+Low - En curso,0,0.0%
+Low - Finalizados,12,4.1%
+
+ARCHIVOS GENERADOS
+Nombre de Archivo,Descripción,Tamaño (bytes)
+Dashboard_KPIs_Sprint32.html,Panel principal con todos los KPIs,18385
+Evolucion_Sprint_Sprint32.html,Evolución histórica por sprint,6550
+Resumen_Sprint32.html,Resumen consolidado con gráficos,6579
+Instrucciones_Sprint32.html,Guía de uso del sistema,16195
+RESUMEN_ACTUALIZACION_SPRINT32.html,Documento resumen ejecutivo,N/A
+
+METADATOS
+Campo,Valor
+Fecha de Generación,20/01/2026
+Hora de Generación,10:00
+Sistema,Gestión de KPIs - Calidad JIRA
+Sprint Actual,Sprint 32
+Total Tickets Procesados,294
+Fuente de Datos,Jira HTML Export
+Última Actualización Jira,20/01/2026

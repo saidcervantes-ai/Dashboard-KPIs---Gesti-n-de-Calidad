@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resumen Actualización Sprint 32 - KPIs Gestión de Calidad</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background: linear-gradient(135deg, #0070c0 0%, #0050a0 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+        .header p {
+            margin: 5px 0;
+            opacity: 0.9;
+        }
+        .card {
+            background: white;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            color: #0070c0;
+            margin-top: 0;
+            border-bottom: 2px solid #0070c0;
+            padding-bottom: 10px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .metric-box {
+            padding: 15px;
+            border-left: 4px solid #0070c0;
+            background-color: #f9f9f9;
+        }
+        .metric-box .label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .metric-box .value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #0070c0;
+        }
+        .metric-box .change {
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin: 5px 5px 5px 0;
+        }
+        .status-cumple {
+            background-color: #92d050;
+            color: #000;
+        }
+        .status-revisar {
+            background-color: #ffc000;
+            color: #000;
+        }
+        .status-critico {
+            background-color: #ff0000;
+            color: #fff;
+        }
+        .files-list {
+            list-style: none;
+            padding: 0;
+        }
+        .files-list li {
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .files-list a {
+            color: #0070c0;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .files-list a:hover {
+            text-decoration: underline;
+        }
+        .alert {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .alert-warning {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            color: #856404;
+        }
+        .alert-info {
+            background-color: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            color: #0c5460;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        table th {
+            background-color: #0070c0;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        table td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        table tr:hover {
+            background-color: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Dashboard KPIs - Sprint 32</h1>
+        <p><strong>Actualización:</strong> 20 de Enero de 2026, 10:00</p>
+        <p><strong>Fuente:</strong> Jira - 294 tickets procesados</p>
+        <p><strong>Sprint Actual:</strong> Sprint 32</p>
+    </div>
+
+    <div class="card">
+        <h2>🎯 Métricas Principales</h2>
+        <div class="metrics-grid">
+            <div class="metric-box">
+                <div class="label">Total de Incidentes</div>
+                <div class="value">294</div>
+                <div class="change">+60 desde Sprint 31</div>
+            </div>
+            <div class="metric-box">
+                <div class="label">Incidentes Finalizados</div>
+                <div class="value">206</div>
+                <div class="change">70.1% del total</div>
+            </div>
+            <div class="metric-box">
+                <div class="label">En Curso</div>
+                <div class="value">4</div>
+                <div class="change">1.4% del total</div>
+            </div>
+            <div class="metric-box">
+                <div class="label">Backlog Pendiente</div>
+                <div class="value">84</div>
+                <div class="change">28.6% del total</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>⚡ Estado de KPIs</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Indicador</th>
+                    <th>Valor</th>
+                    <th>Meta</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>% Incidentes Finalizados</td>
+                    <td><strong>70.1%</strong></td>
+                    <td>&gt; 80%</td>
+                    <td><span class="status-badge status-revisar">⚠ Revisar</span></td>
+                </tr>
+                <tr>
+                    <td>% Incidentes en Curso</td>
+                    <td><strong>1.4%</strong></td>
+                    <td>&lt; 20%</td>
+                    <td><span class="status-badge status-cumple">✓ Cumple</span></td>
+                </tr>
+                <tr>
+                    <td>Highest Abiertos (Sprint Actual)</td>
+                    <td><strong>2</strong></td>
+                    <td>0</td>
+                    <td><span class="status-badge status-revisar">⚠ Revisar</span></td>
+                </tr>
+                <tr>
+                    <td>Backlog de Incidentes</td>
+                    <td><strong>84</strong></td>
+                    <td>&lt; 5</td>
+                    <td><span class="status-badge status-critico">⚠ CRÍTICO</span></td>
+                </tr>
+                <tr>
+                    <td>Tasa de Reapertura</td>
+                    <td><strong>0%</strong></td>
+                    <td>&lt; 5%</td>
+                    <td><span class="status-badge status-cumple">✓ Cumple</span></td>
+                </tr>
+                <tr>
+                    <td>Cobertura de Resolución Sprint</td>
+                    <td><strong>70.1%</strong></td>
+                    <td>&gt; 90%</td>
+                    <td><span class="status-badge status-revisar">⚠ Revisar</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>⏱️ Tiempo Promedio de Resolución por Prioridad</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Prioridad</th>
+                    <th>Tiempo Promedio</th>
+                    <th>Meta</th>
+                    <th>Total Tickets</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Highest</strong></td>
+                    <td>18.5 días</td>
+                    <td>&lt; 2 días</td>
+                    <td>17</td>
+                    <td><span class="status-badge status-revisar">⚠ Revisar</span></td>
+                </tr>
+                <tr>
+                    <td><strong>High</strong></td>
+                    <td>15.2 días</td>
+                    <td>&lt; 5 días</td>
+                    <td>41</td>
+                    <td><span class="status-badge status-revisar">⚠ Revisar</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Medium</strong></td>
+                    <td>22.3 días</td>
+                    <td>&lt; 15 días</td>
+                    <td>216</td>
+                    <td><span class="status-badge status-revisar">⚠ Revisar</span></td>
+                </tr>
+                <tr>
+                    <td><strong>Low</strong></td>
+                    <td>28.7 días</td>
+                    <td>&lt; 30 días</td>
+                    <td>20</td>
+                    <td><span class="status-badge status-cumple">✓ Cumple</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>📈 Distribución por Estado y Prioridad</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Estado / Prioridad</th>
+                    <th>Highest</th>
+                    <th>High</th>
+                    <th>Medium</th>
+                    <th>Low</th>
+                    <th>TOTAL</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Tareas por hacer</strong></td>
+                    <td>2</td>
+                    <td>10</td>
+                    <td>64</td>
+                    <td>8</td>
+                    <td><strong>84</strong></td>
+                </tr>
+                <tr>
+                    <td><strong>En curso</strong></td>
+                    <td>0</td>
+                    <td>1</td>
+                    <td>3</td>
+                    <td>0</td>
+                    <td><strong>4</strong></td>
+                </tr>
+                <tr>
+                    <td><strong>Finalizados</strong></td>
+                    <td>15</td>
+                    <td>30</td>
+                    <td>149</td>
+                    <td>12</td>
+                    <td><strong>206</strong></td>
+                </tr>
+                <tr style="background-color: #f0f0f0;">
+                    <td><strong>TOTAL</strong></td>
+                    <td><strong>17</strong></td>
+                    <td><strong>41</strong></td>
+                    <td><strong>216</strong></td>
+                    <td><strong>20</strong></td>
+                    <td><strong>294</strong></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>⚠️ Áreas de Atención Prioritaria</h2>
+        <div class="alert alert-warning">
+            <strong>🚨 CRÍTICO - Backlog Elevado:</strong> El backlog de 84 incidentes pendientes está significativamente por encima de la meta (&lt;5). Se requiere acción inmediata para reducir el backlog acumulado.
+        </div>
+        <div class="alert alert-warning">
+            <strong>⚠️ Tasa de Finalización Baja:</strong> Con un 70.1% de finalización, estamos por debajo del objetivo del 80%. Es necesario mejorar la velocidad de resolución.
+        </div>
+        <div class="alert alert-warning">
+            <strong>⏰ Tiempos de Resolución Elevados:</strong> Los tiempos promedio de resolución en las prioridades Highest, High y Medium exceden las metas establecidas. Se recomienda revisar el proceso de gestión de incidentes.
+        </div>
+        <div class="alert alert-info">
+            <strong>✅ Punto Positivo:</strong> La tasa de reapertura es 0%, lo que indica que las soluciones aplicadas son efectivas y de calidad.
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📁 Archivos Generados</h2>
+        <p>Los siguientes archivos HTML han sido generados con los datos actualizados del Sprint 32:</p>
+        <ul class="files-list">
+            <li>
+                <a href="Dashboard_KPIs_Sprint32.html">Dashboard_KPIs_Sprint32.html</a>
+                <span>Panel principal con todos los KPIs</span>
+            </li>
+            <li>
+                <a href="Evolucion_Sprint_Sprint32.html">Evolucion_Sprint_Sprint32.html</a>
+                <span>Evolución histórica por sprint</span>
+            </li>
+            <li>
+                <a href="Resumen_Sprint32.html">Resumen_Sprint32.html</a>
+                <span>Resumen consolidado con gráficos</span>
+            </li>
+            <li>
+                <a href="Instrucciones_Sprint32.html">Instrucciones_Sprint32.html</a>
+                <span>Guía de uso del sistema</span>
+            </li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>📊 Cambios vs Sprint Anterior (Sprint 30)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Métrica</th>
+                    <th>Sprint 30</th>
+                    <th>Sprint 32</th>
+                    <th>Cambio</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Total Incidentes</td>
+                    <td>234</td>
+                    <td>294</td>
+                    <td>+60 (+25.6%)</td>
+                </tr>
+                <tr>
+                    <td>% Finalizados</td>
+                    <td>88.9%</td>
+                    <td>70.1%</td>
+                    <td>-18.8 pp</td>
+                </tr>
+                <tr>
+                    <td>Backlog</td>
+                    <td>22</td>
+                    <td>84</td>
+                    <td>+62 (+281.8%)</td>
+                </tr>
+                <tr>
+                    <td>Highest Abiertos</td>
+                    <td>0</td>
+                    <td>2</td>
+                    <td>+2</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>💡 Recomendaciones</h2>
+        <ol>
+            <li><strong>Reducción del Backlog:</strong> Implementar estrategia urgente para reducir los 84 incidentes pendientes. Considerar asignación de recursos adicionales o repriorización.</li>
+            <li><strong>Mejorar Tiempos de Resolución:</strong> Revisar procesos para las prioridades altas. Los tiempos actuales están muy por encima de las metas.</li>
+            <li><strong>Atención a Highest:</strong> Cerrar inmediatamente los 2 incidentes de prioridad Highest que están abiertos en el sprint actual.</li>
+            <li><strong>Aumentar Tasa de Finalización:</strong> Trabajar para alcanzar el 80% de finalización mínimo. Actualmente en 70.1%.</li>
+            <li><strong>Mantener Calidad:</strong> Continuar con las buenas prácticas que mantienen la tasa de reapertura en 0%.</li>
+        </ol>
+    </div>
+
+    <div style="text-align: center; margin-top: 30px; padding: 20px; color: #666;">
+        <p>Sistema de Gestión de KPIs - Calidad JIRA</p>
+        <p>Generado automáticamente el 20/01/2026</p>
+    </div>
+</body>
+</html>
