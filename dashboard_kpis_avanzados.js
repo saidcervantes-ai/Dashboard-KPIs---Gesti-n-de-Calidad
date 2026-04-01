@@ -1,4 +1,4 @@
-// dashboard_kpis_avanzados.js
+﻿// dashboard_kpis_avanzados.js
 // Módulo de KPIs Avanzados - FASE 1
 // ============================================================================
 // Descripción: Lógica para calcular y renderizar KPIs avanzados sin afectar
@@ -3846,9 +3846,1057 @@ function renderVelocidadSection(data) {
 }
 
 
-// Hacer funciones disponibles globalmente
+// ==================== EVOLUCIÓN KPIs AVANZADOS (EXECUTIVE VIEW) ====================
+
+let _evolChartInstances = {};
+
+/**
+ * Renderiza la sección de evolución histórica de KPIs avanzados (S32→S37)
+ * Diseñada para presentación ejecutiva/junta directiva
+ */
+function renderEvolucionKPIsAvanzados() {
+    const container = document.getElementById('evolucion-kpis-avanzados');
+    if (!container || typeof allTickets === 'undefined' || !allTickets.length) return;
+
+    Object.values(_evolChartInstances).forEach(c => { try { c.dispose(); } catch(e) {} });
+    Object.keys(_evolChartInstances).forEach(k => delete _evolChartInstances[k]);
+
+    const SPRINTS    = ['32', '33', '34', '35', '36', '37'];
+    const SPRINTS_CL = ['35', '36', '37'];
+    const LABELS     = SPRINTS.map(s => 'S' + s);
+    const LABELS_CL  = SPRINTS_CL.map(s => 'S' + s);
+    const clData     = (typeof changelogData !== 'undefined') ? changelogData : {};
+
+    // ── DATOS ────────────────────────────────────────────────────────────────
+
+    // 1. Lead Time
+    const leadArr = SPRINTS.map(s => {
+        const r = calcularLeadTime(allTickets, s);
+        return { sprint: s, avg: (r && r.total > 0) ? parseFloat(r.promedio) : null, total: r ? r.total : 0 };
+    });
+
+    // 2. Cycle Time
+    const cycleArr = SPRINTS_CL.map(s => {
+        const r = calcularCycleTime(allTickets, [s]);
+        const dets = r.ticketsDetalle || [];
+        const n = Math.max(dets.length, 1);
+        const sumOf = key => dets.reduce((acc, t) => acc + (t.etapas[key] || 0), 0);
+        const touch  = sumOf('inProcess') + sumOf('codeReview') + sumOf('inTest');
+        const lead   = dets.reduce((acc, t) => acc + (t.diasTotal || 0), 0);
+        const flowEff = lead > 0 ? Math.round((touch / lead) * 100) : 0;
+        return {
+            sprint: s, avg: r.promedio || 0, total: r.total || 0, flowEff,
+            stages: {
+                inProcess:  parseFloat((sumOf('inProcess')  / n).toFixed(2)),
+                codeReview: parseFloat((sumOf('codeReview') / n).toFixed(2)),
+                inTest:     parseFloat((sumOf('inTest')     / n).toFixed(2)),
+                inTestDev:  parseFloat((sumOf('inTestDev')  / n).toFixed(2)),
+                blocked:    parseFloat((sumOf('blocked')    / n).toFixed(2)),
+                testIssue:  parseFloat((sumOf('testIssue')  / n).toFixed(2)),
+            }
+        };
+    });
+
+    // 3. SLE
+    const sleArr = SPRINTS_CL.map(s => {
+        const r = calcularCycleTime(allTickets, [s]);
+        const sorted = (r.ticketsDetalle || []).map(t => t.diasTotal || 0).filter(d => d > 0).sort((a, b) => a - b);
+        const n = sorted.length;
+        const pct = p => n === 0 ? null : sorted[Math.max(0, Math.ceil(p / 100 * n) - 1)];
+        return { sprint: s, p50: pct(50), p90: pct(90), p95: pct(95), n };
+    });
+
+    // 4. Rework
+    const reworkArr = SPRINTS_CL.map(s => {
+        const r = calcularReworkPorSprint(allTickets, s);
+        return { sprint: s, pct: parseFloat(r.porcentaje) || 0, con: r.conRework || 0, total: r.totalAnalizado || 0 };
+    });
+
+    // 5. Críticos
+    const criticosArr = SPRINTS.map(s => {
+        const ts = allTickets.filter(t => String(t.sprint) === s);
+        const criticos = ts.filter(t => { const p = (t.prioridad || '').toLowerCase(); return p === 'highest' || p === 'critical'; });
+        const cerrados = criticos.filter(t => t.estadoNormalizado === 'Finalizados');
+        return { sprint: s, total: criticos.length, cerrados: cerrados.length, abiertos: criticos.length - cerrados.length };
+    });
+
+    // 6. Bugs vs Funcionalidad (misma lógica que calcularAnalisisErrores)
+    const erroresArr = SPRINTS.map(s => {
+        // Filtrar tickets del sprint excluyendo Arrastrado, Por hacer
+        const ts = allTickets.filter(t => {
+            if (String(t.sprint) !== s) return false;
+            const estadoRaw = (t.estado || '').toLowerCase();
+            const estadoNorm = (t.estadoNormalizado || '').toLowerCase();
+            if (estadoRaw === 'arrastrado') return false;
+            if (['tareas por hacer', 'to do', 'backlog'].some(e => estadoNorm.includes(e))) return false;
+            return true;
+        });
+        // Excluir Epics, Spikes, Subtareas (igual que calcularAnalisisErrores)
+        const ticketsReales = ts.filter(t => {
+            const tipo = (t.tipoIncidencia || '').toLowerCase();
+            return !tipo.includes('epic') && !tipo.includes('spike') && !tipo.includes('subtarea');
+        });
+        
+        const bugs = ticketsReales.filter(t => {
+            const tp = (t.tipoIncidencia || '').toLowerCase();
+            return tp.includes('bug') || tp.includes('error') || tp === 'defect';
+        });
+        const tareas = ticketsReales.filter(t => {
+            const tp = (t.tipoIncidencia || '').toLowerCase();
+            return tp.includes('tarea') || tp.includes('task');
+        });
+        const hists = ticketsReales.filter(t => {
+            const tp = (t.tipoIncidencia || '').toLowerCase();
+            return tp.includes('histor') || tp.includes('story');
+        });
+        const otros = ticketsReales.filter(t => !bugs.includes(t) && !tareas.includes(t) && !hists.includes(t));
+        
+        const getSP = t => parseFloat(t.storyPointEstimate) || 0;
+        const spBugs   = parseFloat(bugs.reduce((a, t) => a + getSP(t), 0).toFixed(1));
+        const spTareas = parseFloat(tareas.reduce((a, t) => a + getSP(t), 0).toFixed(1));
+        const spHists  = parseFloat(hists.reduce((a, t) => a + getSP(t), 0).toFixed(1));
+        const spOtros  = parseFloat(otros.reduce((a, t) => a + getSP(t), 0).toFixed(1));
+        const spFunc   = spTareas + spHists;
+        const spTotal  = spBugs + spTareas + spHists + spOtros;
+        
+        const total = ticketsReales.length;
+        const funcCount = tareas.length + hists.length;
+        const pctBugs = total > 0 ? parseFloat(((bugs.length / total) * 100).toFixed(1)) : 0;
+        const pctFunc = total > 0 ? parseFloat(((funcCount / total) * 100).toFixed(1)) : 0;
+        const pctOtros = total > 0 ? parseFloat(((otros.length / total) * 100).toFixed(1)) : 0;
+        const pctSpBugs = spTotal > 0 ? parseFloat(((spBugs / spTotal) * 100).toFixed(1)) : 0;
+        const pctSpFunc = spTotal > 0 ? parseFloat(((spFunc / spTotal) * 100).toFixed(1)) : 0;
+        const pctSpOtros = spTotal > 0 ? parseFloat(((spOtros / spTotal) * 100).toFixed(1)) : 0;
+        
+        return {
+            sprint: s,
+            bugs: bugs.length, func: funcCount, otros: otros.length, total,
+            pctBugs, pctFunc, pctOtros,
+            spBugs, spFunc, spOtros, spTotal,
+            pctSpBugs, pctSpFunc, pctSpOtros
+        };
+    });
+
+    // 7. Carga
+    const cargaArr = SPRINTS.map(s => _calcularCargaPersonaSprint(allTickets, s, clData));
+
+    // ── HELPERS ───────────────────────────────────────────────────────────────
+    const ltLast  = leadArr.filter(d => d.avg !== null).slice(-1)[0];
+    const ltPrev  = leadArr.filter(d => d.avg !== null).slice(-2, -1)[0];
+    const cwLast  = cycleArr.slice(-1)[0];
+    const cwPrev  = cycleArr.slice(-2, -1)[0];
+    const sleLast = sleArr.slice(-1)[0];
+    const rwLast  = reworkArr.slice(-1)[0];
+    const rwPrev  = reworkArr.slice(-2, -1)[0];
+    const crLast  = criticosArr.slice(-1)[0];
+    const errLast = erroresArr.slice(-1)[0];
+    const errPrev = erroresArr.slice(-2, -1)[0];
+
+    // Delta badge — mismo estilo que el módulo existente
+    function deltaBadge(curr, prev, lowerBetter) {
+        if (curr == null || prev == null) return '';
+        const d = curr - prev;
+        if (Math.abs(d) < 0.05) return '<span style="font-size:11px;color:#9CA3AF;">Sin cambio</span>';
+        const pct   = Math.abs((d / (Math.abs(prev) || 1)) * 100).toFixed(0);
+        const good  = lowerBetter ? d < 0 : d > 0;
+        const col   = good ? '#FFFFFF' : '#FFFFFF';
+        const bg    = good ? '#10B981' : '#EF4444';
+        const arrow = d > 0 ? '▲' : '▼';
+        const sign  = d > 0 ? '+' : '';
+        return '<span style="background:' + bg + ';color:' + col + ';padding:3px 9px;border-radius:4px;font-size:11px;font-weight:600;">'
+            + arrow + ' ' + sign + d.toFixed(1) + ' (' + pct + '%)</span>';
+    }
+
+    // Status badge — estilo badge del módulo
+    function statusBadge(val, goodT, warnT, lower) {
+        if (val == null) return '<span style="background:#F3F4F6;color:#6B7280;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;">Sin datos</span>';
+        const good = lower ? +val <= goodT : +val >= goodT;
+        const warn = lower ? +val <= warnT : +val >= warnT;
+        if (good) return '<span style="background:#10B981;color:#FFFFFF;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;">✓ Cumple objetivo</span>';
+        if (warn) return '<span style="background:#F59E0B;color:#FFFFFF;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;">⚠ Revisar</span>';
+        return '<span style="background:#DC2626;color:#FFFFFF;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;">✗ Fuera de objetivo</span>';
+    }
+
+    // Tarjeta KPI — diseño idéntico al módulo existente
+    function kpiSection(id, icon_svg, title, subtitle, accentColor, bodyHtml) {
+        return '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);">'
+            + '<div style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;display:flex;align-items:center;gap:12px;border-left:4px solid ' + accentColor + ';">'
+            + icon_svg
+            + '<div><div style="font-size:15px;font-weight:600;color:#1F2937;">' + title + '</div>'
+            + '<div style="font-size:12px;color:#6B7280;margin-top:1px;">' + subtitle + '</div></div>'
+            + '</div>'
+            + '<div style="padding:16px;">' + bodyHtml + '</div>'
+            + '</div>';
+    }
+
+    // Mini stat card — estilo kpi-card-avanzado del módulo
+    function miniStat(label, val, unit, col) {
+        return '<div style="flex:1;min-width:120px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06);">'
+            + '<div style="font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">' + label + '</div>'
+            + '<div style="display:flex;align-items:baseline;gap:4px;">'
+            + '<span style="font-size:28px;font-weight:700;color:' + col + ';line-height:1;">' + (val != null ? val : '—') + '</span>'
+            + '<span style="font-size:12px;color:#9CA3AF;">' + unit + '</span>'
+            + '</div>'
+            + '</div>';
+    }
+
+    // Tabla helper
+    function TH(txt, col, al) { return '<th style="padding:9px 12px;font-size:10px;font-weight:700;color:' + (col || '#6B7280') + ';text-transform:uppercase;letter-spacing:.5px;text-align:' + (al || 'center') + ';border-bottom:2px solid #E5E7EB;white-space:nowrap;">' + txt + '</th>'; }
+    function TD(val, col)     { return '<td style="padding:8px 12px;font-size:12px;font-weight:600;color:' + (col || '#374151') + ';text-align:center;border-bottom:1px solid #F3F4F6;">' + val + '</td>'; }
+    function TDL(val)         { return '<td style="padding:8px 12px;font-size:12px;font-weight:700;color:#243F6B;white-space:nowrap;border-bottom:1px solid #F3F4F6;">Sprint ' + val + '</td>'; }
+    function TABLE(head, body) {
+        return '<div style="overflow-x:auto;margin-top:12px;"><table style="width:100%;border-collapse:collapse;font-family:inherit;">'
+            + '<thead><tr style="background:#F9FAFB;">' + head + '</tr></thead>'
+            + '<tbody>' + body + '</tbody>'
+            + '</table></div>';
+    }
+
+    // SVG icons tiny
+    const icoFlow  = '<svg style="width:18px;height:18px;flex-shrink:0;color:#4B71A1;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>';
+    const icoClock = '<svg style="width:18px;height:18px;flex-shrink:0;color:#243F6B;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+    const icoSLE   = '<svg style="width:18px;height:18px;flex-shrink:0;color:#059669;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+    const icoRW    = '<svg style="width:18px;height:18px;flex-shrink:0;color:#DC2626;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>';
+    const icoBug   = '<svg style="width:18px;height:18px;flex-shrink:0;color:#F44336;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+    const icoAlert = '<svg style="width:18px;height:18px;flex-shrink:0;color:#D97706;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>';
+    const icoTeam  = '<svg style="width:18px;height:18px;flex-shrink:0;color:#4B71A1;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>';
+
+    // ── TABLAS ────────────────────────────────────────────────────────────────
+
+    const ctTableHtml = TABLE(
+        TH('Sprint', null, 'left') + TH('Ciclo Prom.','#243F6B') + TH('Flow Eff.','#4B71A1') + TH('In Process') + TH('Code Review') + TH('In Test') + TH('Blocked','#DC2626') + TH('Test Issues','#DC2626') + TH('Tickets','#6B7280'),
+        cycleArr.map(c =>
+            '<tr>' + TDL(c.sprint)
+            + TD(c.avg + 'd', '#243F6B')
+            + TD(c.flowEff + '%', c.flowEff >= 60 ? '#10B981' : c.flowEff >= 40 ? '#D97706' : '#DC2626')
+            + TD(c.stages.inProcess + 'd')
+            + TD(c.stages.codeReview + 'd')
+            + TD(c.stages.inTest + 'd')
+            + TD(c.stages.blocked > 0 ? c.stages.blocked + 'd' : '—', c.stages.blocked > 0.4 ? '#DC2626' : '#9CA3AF')
+            + TD(c.stages.testIssue > 0 ? c.stages.testIssue + 'd' : '—', c.stages.testIssue > 0.2 ? '#DC2626' : '#9CA3AF')
+            + TD(c.total + '', '#6B7280')
+            + '</tr>'
+        ).join('')
+    );
+
+    // Tabla Carga por Sprint
+    function renderCargaTable(s) {
+        const d = cargaArr.find(c => String(c.sprint) === String(s));
+        if (!d || !d.personas.length)
+            return '<p style="padding:16px;color:#9CA3AF;font-style:italic;font-size:13px;">Sin datos para Sprint ' + s + '</p>';
+        
+        // Obtener sprint anterior para comparar Test Issues
+        const sIdx = SPRINTS.indexOf(String(s));
+        const prevSprintData = sIdx > 0 ? cargaArr.find(c => String(c.sprint) === SPRINTS[sIdx - 1]) : null;
+        
+        const rows = d.personas.map(p => {
+            // Calcular tendencia Test Issues vs sprint anterior
+            let tiTrend = '';
+            if (prevSprintData) {
+                const prevP = prevSprintData.personas.find(pp => pp.nombre === p.nombre);
+                const prevTI = prevP ? (prevP.testIssues || 0) : 0;
+                const currTI = p.testIssues || 0;
+                const diff = currTI - prevTI;
+                if (diff > 0) {
+                    tiTrend = ' <span style="color:#DC2626;font-size:10px;font-weight:700;" title="Aumentó +' + diff + ' vs S' + SPRINTS[sIdx - 1] + '">▲</span>';
+                } else if (diff < 0) {
+                    tiTrend = ' <span style="color:#10B981;font-size:10px;font-weight:700;" title="Disminuyó ' + diff + ' vs S' + SPRINTS[sIdx - 1] + '">▼</span>';
+                } else if (currTI > 0) {
+                    tiTrend = ' <span style="color:#9CA3AF;font-size:10px;font-weight:700;" title="Sin cambio vs S' + SPRINTS[sIdx - 1] + '">=</span>';
+                }
+            }
+            
+            return '<tr>'
+            + '<td style="padding:8px 12px;font-size:12px;font-weight:700;color:#243F6B;white-space:nowrap;border-bottom:1px solid #F3F4F6;">' + p.nombre.split(' ').slice(0, 3).join(' ') + '</td>'
+            + TD(p.capacidadComp, '#4B71A1')
+            + TD(p.spEstimado, '#374151')
+            + TD(p.spReal, '#374151')
+            + TD((p.desviacion > 0 ? '+' : '') + p.desviacion, p.desviacion <= 0 ? '#10B981' : '#DC2626')
+            + TD(p.total + '', '#374151')
+            + TD(p.errores > 0 ? p.errores + '' : '—', p.errores > 0 ? '#F44336' : '#9CA3AF')
+            + TD(p.tareas + '', '#374151')
+            + TD(p.historias + '', '#374151')
+            + '<td style="padding:8px 12px;font-size:12px;text-align:center;border-bottom:1px solid #F3F4F6;color:' + (p.testIssues > 0 ? '#D97706' : '#9CA3AF') + ';">' + (p.testIssues > 0 ? p.testIssues + tiTrend : '—') + '</td>'
+            + '</tr>';
+        }).join('');
+        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-family:inherit;">'
+            + '<thead><tr style="background:#F9FAFB;">'
+            + TH('Miembro', null, 'left') + TH('CC','#4B71A1') + TH('SP Est.') + TH('SP Real') + TH('Desv.')
+            + TH('Total') + TH('Bugs','#F44336') + TH('Tareas') + TH('Historias') + TH('Test Issues','#D97706')
+            + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+
+    // Tabs carga
+    const cargaTabs = SPRINTS.map((s, i) =>
+        '<button onclick="window._evCargaTab(\'' + s + '\')" id="evol-carga-tab-' + s + '" '
+        + 'style="padding:5px 14px;border-radius:4px;border:none;cursor:pointer;font-size:12px;font-weight:600;transition:all .2s;'
+        + (i === SPRINTS.length - 1 ? 'background:#243F6B;color:#FFFFFF;' : 'background:#F3F4F6;color:#6B7280;') + '">'
+        + 'S' + s + '</button>'
+    ).join('');
+
+    // ── KPI 01: Lead Time ──────────────────────────────────────────────────────
+    const kpi01 = kpiSection('kpi01', icoClock,
+        'KPI 01 · Lead Time por Sprint',
+        'Días promedio desde creación hasta resolución · Sprints 32 → 37',
+        '#243F6B',
+        '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">'
+        + '<div style="display:flex;align-items:baseline;gap:6px;">'
+        + '<span style="font-size:36px;font-weight:700;color:#243F6B;line-height:1;">' + (ltLast?.avg?.toFixed(1) ?? '—') + '</span>'
+        + '<span style="font-size:13px;color:#6B7280;">días · Sprint 37</span>'
+        + '</div>'
+        + '<div style="display:flex;align-items:center;gap:8px;">'
+        + deltaBadge(ltLast?.avg, ltPrev?.avg, true)
+        + statusBadge(ltLast?.avg, 10, 15, true)
+        + '</div>'
+        + '</div>'
+        + '<div id="evol-ch-leadtime" style="width:100%;height:200px;"></div>'
+    );
+
+    // ── KPI 02: Cycle Time ────────────────────────────────────────────────────
+    const kpi02 = kpiSection('kpi02', icoFlow,
+        'KPI 02 · Cycle Time · Eficiencia de Flujo',
+        'Días promedio de ciclo y % Flow Efficiency · Sprints 35 → 37 (requiere changelog)',
+        '#4B71A1',
+        '<div id="evol-ch-cycletime" style="width:100%;height:180px;"></div>'
+    );
+
+    // ── KPI 04: Rework ────────────────────────────────────────────────────────
+    const kpi04 = kpiSection('kpi04', icoRW,
+        'KPI 04 · Rework — Reprocesos por Sprint',
+        'Tickets con retrocesos detectados (In Test → Test Issues) · Sprints 35 → 37',
+        '#DC2626',
+        '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">'
+        + '<div style="display:flex;align-items:baseline;gap:6px;">'
+        + '<span style="font-size:36px;font-weight:700;color:#DC2626;line-height:1;">' + (rwLast?.pct?.toFixed(1) ?? '—') + '</span>'
+        + '<span style="font-size:13px;color:#6B7280;">% · ' + (rwLast?.con ?? 0) + ' de ' + (rwLast?.total ?? 0) + ' tickets · Sprint 37</span>'
+        + '</div>'
+        + '<div style="display:flex;align-items:center;gap:8px;">'
+        + deltaBadge(rwLast?.pct, rwPrev?.pct, true)
+        + '<span style="position:relative;display:inline-block;cursor:help;" onmouseenter="this.querySelector(\'.tooltip-umbrales\').style.display=\'block\'" onmouseleave="this.querySelector(\'.tooltip-umbrales\').style.display=\'none\'">'
+        + statusBadge(rwLast?.pct, 5, 10, true)
+        + '<div class="tooltip-umbrales" style="display:none;position:absolute;top:calc(100% + 8px);right:0;background:#1F2937;color:#fff;padding:10px 14px;border-radius:8px;font-size:11px;white-space:nowrap;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.25);">'
+        + '<div style="font-weight:700;margin-bottom:8px;color:#D1D5DB;">Umbrales DORA % Rework</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="width:10px;height:10px;background:#10B981;border-radius:50%;"></span> ≤ 5% Bueno</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="width:10px;height:10px;background:#F59E0B;border-radius:50%;"></span> 5% - 10% Atención</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;background:#DC2626;border-radius:50%;"></span> > 10% Crítico</div>'
+        + '<div style="position:absolute;top:-6px;right:16px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:6px solid #1F2937;"></div>'
+        + '</div>'
+        + '</span>'
+        + '</div>'
+        + '</div>'
+        + '<div id="evol-ch-rework" style="width:100%;height:200px;"></div>'
+    );
+
+    // ── KPI 06: Bugs vs Func ──────────────────────────────────────────────────
+    const kpi06 = kpiSection('kpi06', icoBug,
+        'KPI 06 · Esfuerzo en Bugs vs Funcionalidad por Sprint',
+        'Proporción de Story Points dedicados a corrección de errores · Sprints 32 → 37',
+        '#DC2626',
+        '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">'
+        + '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">'
+        + '<div><span style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">% Esfuerzo Bugs S37</span><br>'
+        + '<span style="font-size:36px;font-weight:700;color:' + ((errLast?.pctSpBugs || 0) <= 30 ? '#10B981' : (errLast?.pctSpBugs || 0) <= 50 ? '#D97706' : '#DC2626') + ';line-height:1.1;">' + (errLast?.pctSpBugs?.toFixed?.(1) ?? errLast?.pctSpBugs ?? '—') + '%</span>'
+        + '</div>'
+        + '<div style="width:1px;height:36px;background:#E5E7EB;"></div>'
+        + '<div><span style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">SP Bugs / SP Total</span><br>'
+        + '<span style="font-size:22px;font-weight:700;color:#374151;line-height:1.1;">' + (errLast?.spBugs ?? '—') + '<span style="font-size:13px;color:#9CA3AF;"> / ' + (errLast?.spTotal ?? '—') + ' SP</span></span>'
+        + '</div>'
+        + '</div>'
+        + '<div style="display:flex;align-items:center;gap:8px;">'
+        + deltaBadge(errLast?.pctSpBugs, errPrev?.pctSpBugs, true)
+        + '<span style="position:relative;display:inline-block;cursor:help;" onmouseenter="this.querySelector(\'.tooltip-umbrales\').style.display=\'block\'" onmouseleave="this.querySelector(\'.tooltip-umbrales\').style.display=\'none\'">'
+        + statusBadge(errLast?.pctSpBugs, 30, 50, true)
+        + '<div class="tooltip-umbrales" style="display:none;position:absolute;bottom:calc(100% + 8px);right:0;background:#1F2937;color:#fff;padding:10px 14px;border-radius:8px;font-size:11px;white-space:nowrap;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.25);">'
+        + '<div style="font-weight:700;margin-bottom:8px;color:#D1D5DB;">Umbrales % Esfuerzo Bugs</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="width:10px;height:10px;background:#10B981;border-radius:50%;"></span> ≤ 30% Bueno</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="width:10px;height:10px;background:#F59E0B;border-radius:50%;"></span> 30% - 50% Atención</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;background:#DC2626;border-radius:50%;"></span> > 50% Crítico</div>'
+        + '<div style="position:absolute;bottom:-6px;right:16px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:6px solid #1F2937;"></div>'
+        + '</div>'
+        + '</span>'
+        + '</div>'
+        + '</div>'
+        + '<div id="evol-ch-errores" style="width:100%;height:200px;"></div>'
+    );
+
+    // ── KPI 07: Carga por Miembro ─────────────────────────────────────────────
+    const kpi07 = '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);">'
+        + '<div style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;border-left:4px solid #4B71A1;">'
+        + '<div style="display:flex;align-items:center;gap:12px;">'
+        + icoTeam
+        + '<div>'
+        + '<div style="font-size:15px;font-weight:600;color:#1F2937;">KPI 07 · Carga y Calidad por Miembro del Equipo</div>'
+        + '<div style="font-size:12px;color:#6B7280;margin-top:1px;">CC · SP Estimado · SP Real · Desviación · Bugs · Test Issues por persona · por sprint</div>'
+        + '</div></div>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + cargaTabs + '</div>'
+        + '</div>'
+        + '<div id="evol-carga-body" style="padding:16px;">' + renderCargaTable(SPRINTS[SPRINTS.length - 1]) + '</div>'
+        + '</div>';
+
+    // ── NOTA ──────────────────────────────────────────────────────────────────
+    const nota = '<div style="padding:12px 16px;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;font-size:11px;color:#6B7280;line-height:1.8;">'
+        + '<strong style="color:#374151;">Notas metodológicas:</strong> '
+        + 'Cycle Time, SLE y Rework requieren changelog (disponible desde S35). '
+        + 'Lead Time = días entre creación y resolución (tickets Finalizados). '
+        + 'CC = Capacidad Comprometida incluyendo tickets Arrastrados. '
+        + 'Flow Efficiency = tiempo productivo / tiempo total de ciclo. '
+        + 'Críticos = prioridad "Highest" en Jira.'
+        + '</div>';
+
+    container.innerHTML = kpi01 + kpi02 + kpi04 + kpi06 + kpi07 + nota;
+
+    // Tab handler carga
+    window._evCargaTab = function(s) {
+        SPRINTS.forEach(sp => {
+            const btn = document.getElementById('evol-carga-tab-' + sp);
+            if (btn) {
+                btn.style.background = sp === s ? '#243F6B' : '#F3F4F6';
+                btn.style.color      = sp === s ? '#FFFFFF' : '#6B7280';
+            }
+        });
+        const body = document.getElementById('evol-carga-body');
+        if (body) body.innerHTML = '<div style="padding:0 0 4px;">' + renderCargaTable(s) + '</div>';
+    };
+
+    requestAnimationFrame(() => {
+        _initEvolLineChart('evol-ch-leadtime',   LABELS,    leadArr.map(d => d.avg),    '#243F6B', 'días', true,  10, 15);
+        _initCycleTimeEvolChart('evol-ch-cycletime', LABELS_CL, cycleArr);
+        _initReworkEvolChart('evol-ch-rework', LABELS_CL, reworkArr);
+        _initBugsEvolChart('evol-ch-errores',   LABELS,   erroresArr);
+    });
+}
+
+// ─── Chart helpers — tema consistente con el módulo ───────────────────────────
+
+/**
+ * Rework Chart con tooltip detallado (DORA thresholds: 5% / 10%)
+ */
+function _initReworkEvolChart(id, labels, data) {
+    const el = document.getElementById(id);
+    if (!el || typeof echarts === 'undefined') return;
+    if (_evolChartInstances[id]) { try { _evolChartInstances[id].dispose(); } catch(e) {} }
+
+    const chart = echarts.init(el, null, { renderer: 'canvas' });
+    _evolChartInstances[id] = chart;
+
+    const color = '#DC2626';
+    const values = data.map(d => d.pct);
+    const valid = values.filter(v => v !== null && v !== undefined);
+    const minV  = valid.length ? Math.min(...valid) : 0;
+    const maxV  = valid.length ? Math.max(...valid) : 1;
+    const pad   = Math.max((maxV - minV) * 0.3, 2);
+
+    chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            appendToBody: true,
+            confine: false,
+            backgroundColor: '#FFFFFF',
+            borderColor: '#E5E7EB',
+            borderWidth: 1,
+            padding: [12, 16],
+            extraCssText: 'box-shadow:0 4px 12px rgba(0,0,0,.12);border-radius:8px;z-index:9999;',
+            formatter: params => {
+                const p = params[0];
+                const idx = p.dataIndex;
+                const d = data[idx];
+                const statusCol = d.pct <= 5 ? '#059669' : d.pct <= 10 ? '#D97706' : '#DC2626';
+                const statusBg  = d.pct <= 5 ? '#D1FAE5' : d.pct <= 10 ? '#FEF3C7' : '#FEE2E2';
+                const statusLbl = d.pct <= 5 ? '✓ Bueno' : d.pct <= 10 ? '⚠ Atención' : '✗ Crítico';
+                
+                return '<div style="min-width:180px;">'
+                    + '<div style="font-size:12px;color:#6B7280;font-weight:600;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #E5E7EB;">' + p.name + '</div>'
+                    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+                    + '<span style="font-size:28px;font-weight:700;color:' + color + ';">' + d.pct.toFixed(1) + '%</span>'
+                    + '<span style="font-size:10px;font-weight:600;padding:4px 10px;border-radius:10px;background:' + statusBg + ';color:' + statusCol + ';">' + statusLbl + '</span>'
+                    + '</div>'
+                    + '<div style="display:flex;gap:16px;">'
+                    + '<div style="flex:1;text-align:center;padding:8px;background:#FEF2F2;border-radius:6px;">'
+                    + '<div style="font-size:9px;color:#991B1B;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Reprocesados</div>'
+                    + '<div style="font-size:18px;font-weight:700;color:#DC2626;">' + d.con + '</div>'
+                    + '</div>'
+                    + '<div style="flex:1;text-align:center;padding:8px;background:#F3F4F6;border-radius:6px;">'
+                    + '<div style="font-size:9px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Analizados</div>'
+                    + '<div style="font-size:18px;font-weight:700;color:#374151;">' + d.total + '</div>'
+                    + '</div>'
+                    + '</div>'
+                    + '</div>';
+            }
+        },
+        grid: { left: 8, right: 80, top: 28, bottom: 24, containLabel: true },
+        xAxis: {
+            type: 'category', data: labels, boundaryGap: false,
+            axisLine: { lineStyle: { color: '#E5E7EB' } },
+            axisTick: { show: false },
+            axisLabel: { fontSize: 11, fontWeight: 600, color: '#6B7280' }
+        },
+        yAxis: {
+            type: 'value',
+            name: '%',
+            nameTextStyle: { color: '#9CA3AF', fontSize: 11, fontWeight: 600, padding: [0, 28, 0, 0] },
+            min: 0, max: Math.max(maxV + pad, 12),
+            splitLine: { lineStyle: { color: '#F3F4F6', type: 'dashed' } },
+            axisLine: { show: false }, axisTick: { show: false },
+            axisLabel: { fontSize: 10, color: '#9CA3AF', formatter: '{value}' }
+        },
+        series: [{
+            type: 'line',
+            data: values,
+            smooth: 0.3, symbol: 'circle', symbolSize: 8,
+            lineStyle: { color, width: 2.5 },
+            itemStyle: { color, borderColor: '#FFFFFF', borderWidth: 2.5 },
+            label: { show: false },
+            areaStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: color + '50' },
+                    { offset: 1, color: color + '08' }
+                ])
+            },
+            markLine: {
+                silent: true, symbol: ['none', 'none'],
+                animation: false,
+                data: [
+                    {
+                        yAxis: 5,
+                        lineStyle: { color: '#10B981', type: 'dashed', width: 1.5, opacity: 0.85 },
+                        label: {
+                            formatter: '✓ Objetivo  5%',
+                            fontSize: 10, fontWeight: 700, color: '#059669',
+                            position: 'insideEndTop',
+                            backgroundColor: '#F0FDF4', padding: [3, 6],
+                            borderRadius: 3
+                        }
+                    },
+                    {
+                        yAxis: 10,
+                        lineStyle: { color: '#D97706', type: 'dashed', width: 1.5, opacity: 0.85 },
+                        label: {
+                            formatter: '⚠ Límite  10%',
+                            fontSize: 10, fontWeight: 700, color: '#D97706',
+                            position: 'insideEndTop',
+                            backgroundColor: '#FFFBEB', padding: [3, 6],
+                            borderRadius: 3
+                        }
+                    }
+                ]
+            }
+        }]
+    });
+    window.addEventListener('resize', () => { try { chart.resize(); } catch(e) {} });
+}
+
+/**
+ * Línea + área — colores del módulo existente
+ * Lead Time (navy)
+ */
+function _initEvolLineChart(id, labels, data, color, unit, lowerIsBetter, goodThresh, warnThresh) {
+    const el = document.getElementById(id);
+    if (!el || typeof echarts === 'undefined') return;
+    if (_evolChartInstances[id]) { try { _evolChartInstances[id].dispose(); } catch(e) {} }
+
+    const chart = echarts.init(el, null, { renderer: 'canvas' });
+    _evolChartInstances[id] = chart;
+
+    const valid = data.filter(v => v !== null && v !== undefined);
+    const minV  = valid.length ? Math.min(...valid) : 0;
+    const maxV  = valid.length ? Math.max(...valid) : 1;
+    const pad   = Math.max((maxV - minV) * 0.3, 1);
+
+    chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: '#FFFFFF',
+            borderColor: '#E5E7EB',
+            borderWidth: 1,
+            padding: [10, 14],
+            textStyle: { color: '#1F2937', fontSize: 13, fontWeight: 600 },
+            extraCssText: 'box-shadow:0 4px 12px rgba(0,0,0,.12);',
+            formatter: params => {
+                const p = params[0];
+                return '<div style="font-size:11px;color:#6B7280;margin-bottom:4px;font-weight:600;">' + p.name + '</div>'
+                    + '<div style="display:flex;align-items:baseline;gap:4px;">'
+                    + '<span style="font-size:20px;font-weight:700;color:' + color + ';">'
+                    + (p.value !== null && p.value !== undefined ? p.value : '—')
+                    + '</span>'
+                    + '<span style="font-size:12px;color:#9CA3AF;">' + unit + '</span>'
+                    + '</div>';
+            }
+        },
+        grid: { left: 8, right: 80, top: 28, bottom: 24, containLabel: true },
+        xAxis: {
+            type: 'category', data: labels, boundaryGap: false,
+            axisLine: { lineStyle: { color: '#E5E7EB' } },
+            axisTick: { show: false },
+            axisLabel: { fontSize: 11, fontWeight: 600, color: '#6B7280' }
+        },
+        yAxis: {
+            type: 'value',
+            name: unit,
+            nameTextStyle: { color: '#9CA3AF', fontSize: 11, fontWeight: 600, padding: [0, 28, 0, 0] },
+            min: Math.max(0, minV - pad), max: maxV + pad,
+            splitLine: { lineStyle: { color: '#F3F4F6', type: 'dashed' } },
+            axisLine: { show: false }, axisTick: { show: false },
+            axisLabel: { fontSize: 10, color: '#9CA3AF', formatter: '{value}' }
+        },
+        series: [{
+            type: 'line',
+            data: data.map(v => (v !== null && v !== undefined) ? v : null),
+            smooth: 0.3, symbol: 'circle', symbolSize: 8,
+            lineStyle: { color, width: 2.5 },
+            itemStyle: { color, borderColor: '#FFFFFF', borderWidth: 2.5 },
+            label: { show: false },
+            areaStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: color + '50' },
+                    { offset: 1, color: color + '08' }
+                ])
+            },
+            connectNulls: false,
+            markLine: {
+                silent: true, symbol: ['none', 'none'],
+                animation: false,
+                data: [
+                    {
+                        yAxis: goodThresh,
+                        lineStyle: { color: '#10B981', type: 'dashed', width: 1.5, opacity: 0.85 },
+                        label: {
+                            formatter: '✓ Objetivo  ' + goodThresh + unit,
+                            fontSize: 10, fontWeight: 700, color: '#059669',
+                            position: 'insideEndTop',
+                            backgroundColor: '#F0FDF4', padding: [3, 6],
+                            borderRadius: 3
+                        }
+                    },
+                    {
+                        yAxis: warnThresh,
+                        lineStyle: { color: '#D97706', type: 'dashed', width: 1.5, opacity: 0.85 },
+                        label: {
+                            formatter: '⚠ Límite  ' + warnThresh + unit,
+                            fontSize: 10, fontWeight: 700, color: '#D97706',
+                            position: 'insideEndTop',
+                            backgroundColor: '#FFFBEB', padding: [3, 6],
+                            borderRadius: 3
+                        }
+                    }
+                ]
+            }
+        }]
+    });
+    window.addEventListener('resize', () => { try { chart.resize(); } catch(e) {} });
+}
+
+/**
+ * Cycle Time — barras simples con etiqueta de Flow Efficiency
+ * Sin eje dual (demasiado confuso), sin superposición
+ */
+function _initCycleTimeEvolChart(id, labels, data) {
+    const dom = document.getElementById(id);
+    if (!dom || typeof echarts === 'undefined') return;
+    if (_evolChartInstances[id]) { try { _evolChartInstances[id].dispose(); } catch(e) {} }
+
+    const chart = echarts.init(dom, null, { renderer: 'canvas' });
+    _evolChartInstances[id] = chart;
+
+    // Helper: format time
+    const fmt = v => (v != null && v > 0) ? (v < 0.5 ? Math.round(v * 24) + 'h' : v.toFixed(1) + 'd') : '—';
+
+    // Stages definition (left to right in stack)
+    const STAGES = [
+        { key: 'inProcess',  name: 'In Process',  color: '#243F6B' },
+        { key: 'codeReview', name: 'Code Review', color: '#4B71A1' },
+        { key: 'inTest',     name: 'In Test',     color: '#64748B' },
+        { key: 'inTestDev',  name: 'Test Dev',    color: '#F97316' },
+        { key: 'blocked',    name: 'Blocked',     color: '#EF4444' },
+        { key: 'testIssue',  name: 'Test Issue',  color: '#F59E0B' }
+    ];
+
+    // Build series for each stage (horizontal bars)
+    const series = STAGES.map((st, idx) => ({
+        name: st.name,
+        type: 'bar',
+        stack: 'cycle',
+        barWidth: 28,
+        itemStyle: { 
+            color: st.color,
+            borderRadius: idx === STAGES.length - 1 ? [0, 4, 4, 0] : 0
+        },
+        emphasis: { itemStyle: { opacity: 0.85 } },
+        data: data.map(d => d.stages[st.key] || 0)
+    }));
+
+    // Add invisible series for right-side labels (Ciclo + Flow Eff + badge)
+    series.push({
+        name: '_label',
+        type: 'bar',
+        stack: 'cycle',
+        barWidth: 28,
+        itemStyle: { color: 'transparent' },
+        label: {
+            show: true,
+            position: 'right',
+            distance: 12,
+            formatter: (p) => {
+                const d = data[p.dataIndex];
+                const effCol = d.flowEff >= 60 ? '#059669' : d.flowEff >= 40 ? '#D97706' : '#DC2626';
+                const badge = d.flowEff >= 60 ? '●' : d.flowEff >= 40 ? '○' : '○';
+                return '{total|' + d.avg.toFixed(1) + 'd}  {eff|' + d.flowEff + '%} {badge|' + badge + '}';
+            },
+            rich: {
+                total: { fontSize: 14, fontWeight: 700, color: '#1F2937' },
+                eff: { fontSize: 13, fontWeight: 600, color: '#6B7280' },
+                badge: { fontSize: 10, color: '#059669' }
+            }
+        },
+        data: data.map(() => 0)
+    });
+
+    chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: { type: 'shadow' },
+            appendToBody: true,
+            confine: false,
+            backgroundColor: '#FFFFFF',
+            borderColor: '#E5E7EB',
+            borderWidth: 1,
+            padding: [12, 16],
+            extraCssText: 'box-shadow:0 4px 12px rgba(0,0,0,0.1);border-radius:8px;z-index:9999;',
+            textStyle: { color: '#374151', fontSize: 12 },
+            formatter: params => {
+                const idx = params[0].dataIndex;
+                const d = data[idx];
+                const effCol = d.flowEff >= 60 ? '#059669' : d.flowEff >= 40 ? '#D97706' : '#DC2626';
+                let h = '<div style="font-weight:700;font-size:13px;color:#1F2937;margin-bottom:8px;">' + labels[idx] + '</div>';
+                h += '<div style="display:flex;gap:16px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #E5E7EB;">';
+                h += '<div><span style="font-size:10px;color:#6B7280;">Ciclo</span><br><strong style="font-size:16px;color:#243F6B;">' + d.avg.toFixed(1) + 'd</strong></div>';
+                h += '<div><span style="font-size:10px;color:#6B7280;">Flow Eff.</span><br><strong style="font-size:16px;color:' + effCol + ';">' + d.flowEff + '%</strong></div>';
+                h += '<div><span style="font-size:10px;color:#6B7280;">Tickets</span><br><strong style="font-size:16px;color:#374151;">' + d.total + '</strong></div>';
+                h += '</div>';
+                params.filter(p => p.seriesName !== '_label' && p.value > 0).forEach(p => {
+                    const pct = d.avg > 0 ? Math.round((p.value / d.avg) * 100) : 0;
+                    h += '<div style="display:flex;align-items:center;gap:6px;margin:4px 0;">';
+                    h += '<span style="width:10px;height:10px;border-radius:2px;background:' + p.color + ';"></span>';
+                    h += '<span style="flex:1;">' + p.seriesName + '</span>';
+                    h += '<strong>' + fmt(p.value) + '</strong>';
+                    h += '<span style="color:#9CA3AF;font-size:11px;">' + pct + '%</span>';
+                    h += '</div>';
+                });
+                return h;
+            }
+        },
+        legend: {
+            bottom: 0,
+            textStyle: { color: '#6B7280', fontSize: 11, fontWeight: 500 },
+            icon: 'roundRect',
+            itemWidth: 12,
+            itemHeight: 8,
+            itemGap: 16,
+            data: STAGES.map(s => s.name)
+        },
+        grid: { left: 50, right: 120, top: 16, bottom: 50, containLabel: false },
+        yAxis: {
+            type: 'category',
+            data: labels,
+            inverse: true,
+            axisLine: { show: false },
+            axisTick: { show: false },
+            axisLabel: { fontSize: 13, fontWeight: 700, color: '#243F6B' }
+        },
+        xAxis: {
+            type: 'value',
+            name: 'días',
+            nameLocation: 'end',
+            nameTextStyle: { color: '#9CA3AF', fontSize: 10 },
+            splitLine: { lineStyle: { color: '#F3F4F6', type: 'dashed' } },
+            axisLine: { show: false },
+            axisTick: { show: false },
+            axisLabel: { fontSize: 10, color: '#9CA3AF', formatter: '{value}' }
+        },
+        series
+    });
+
+    window.addEventListener('resize', () => { try { chart.resize(); } catch(e) {} });
+}
+
+/**
+ * SLE — 3 líneas P50 / P90 / P95
+ * Etiquetas solo en los puntos (sin superposición)
+ */
+function _initSLEEvolChart(id, labels, data) {
+    const dom = document.getElementById(id);
+    if (!dom || typeof echarts === 'undefined') return;
+    if (_evolChartInstances[id]) { try { _evolChartInstances[id].dispose(); } catch(e) {} }
+
+    const chart = echarts.init(dom, null, { renderer: 'canvas' });
+    _evolChartInstances[id] = chart;
+
+    function mkSerie(name, key, color, dashed) {
+        return {
+            name, type: 'line', symbol: 'circle', symbolSize: 8,
+            lineStyle: { width: 2.5, color, type: dashed ? 'dashed' : 'solid' },
+            itemStyle: { color, borderColor: '#FFFFFF', borderWidth: 2 },
+            label: { show: false },
+            connectNulls: false,
+            data: data.map(d => d[key] != null ? +d[key].toFixed(1) : null)
+        };
+    }
+
+    chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis', backgroundColor: '#FFFFFF', borderColor: '#E5E7EB', borderWidth: 1, padding: [10, 14],
+            extraCssText: 'box-shadow:0 4px 12px rgba(0,0,0,0.08);border-radius:8px;',
+            textStyle: { color: '#374151', fontSize: 12 },
+            formatter: params => {
+                let h = '<div style="font-size:11px;color:#6B7280;margin-bottom:6px;font-weight:700;">' + params[0].axisValue + '</div>';
+                params.forEach(p => { h += '<div style="margin:3px 0;color:#374151;">' + p.marker + ' ' + p.seriesName + ': <strong>' + (p.value != null ? p.value + 'd' : '—') + '</strong></div>'; });
+                return h;
+            }
+        },
+        legend: {
+            bottom: 4, textStyle: { color: '#6B7280', fontSize: 11, fontWeight: 500 },
+            icon: 'circle', itemWidth: 8, itemHeight: 8
+        },
+        grid: { left: 8, right: 16, top: 28, bottom: 40, containLabel: true },
+        xAxis: {
+            type: 'category', data: labels,
+            axisLine: { lineStyle: { color: '#E5E7EB' } }, axisTick: { show: false },
+            axisLabel: { fontSize: 12, fontWeight: 600, color: '#374151' }
+        },
+        yAxis: {
+            type: 'value',
+            splitLine: { lineStyle: { color: '#F3F4F6', type: 'dashed' } },
+            axisLine: { show: false }, axisTick: { show: false },
+            axisLabel: { fontSize: 10, color: '#9CA3AF', formatter: '{value}d' }
+        },
+        series: [
+            mkSerie('P50 — Mediana', 'p50', '#10B981', false),
+            mkSerie('P90 — SLA',     'p90', '#D97706', false),
+            mkSerie('P95 — Outlier', 'p95', '#DC2626', true)
+        ]
+    });
+    window.addEventListener('resize', () => { try { chart.resize(); } catch(e) {} });
+}
+
+/**
+ * Tickets Críticos — barras agrupadas limpias
+ */
+function _initCriticosEvolChart(id, labels, data) {
+    const dom = document.getElementById(id);
+    if (!dom || typeof echarts === 'undefined') return;
+    if (_evolChartInstances[id]) { try { _evolChartInstances[id].dispose(); } catch(e) {} }
+
+    const chart = echarts.init(dom, null, { renderer: 'canvas' });
+    _evolChartInstances[id] = chart;
+
+    chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis', axisPointer: { type: 'shadow' },
+            backgroundColor: '#1F2937', borderWidth: 0, padding: [10, 14],
+            textStyle: { color: '#F9FAFB', fontSize: 12 }
+        },
+        legend: {
+            bottom: 4, textStyle: { color: '#6B7280', fontSize: 11, fontWeight: 500 },
+            icon: 'circle', itemWidth: 8, itemHeight: 8
+        },
+        grid: { left: 8, right: 16, top: 16, bottom: 40, containLabel: true },
+        xAxis: {
+            type: 'category', data: labels,
+            axisLine: { lineStyle: { color: '#E5E7EB' } }, axisTick: { show: false },
+            axisLabel: { fontSize: 11, fontWeight: 600, color: '#374151' }
+        },
+        yAxis: {
+            type: 'value', minInterval: 1,
+            splitLine: { lineStyle: { color: '#F3F4F6', type: 'dashed' } },
+            axisLine: { show: false }, axisTick: { show: false },
+            axisLabel: { fontSize: 10, color: '#9CA3AF' }
+        },
+        series: [
+            {
+                name: 'Total', type: 'bar', barMaxWidth: 28, barGap: '10%',
+                itemStyle: { color: '#4B71A1', borderRadius: [3, 3, 0, 0] },
+                label: { show: true, position: 'top', fontSize: 10, fontWeight: 700, color: '#374151' },
+                data: data.map(d => d.total)
+            },
+            {
+                name: 'Cerrados', type: 'bar', barMaxWidth: 28,
+                itemStyle: { color: '#4CAF50', borderRadius: [3, 3, 0, 0] },
+                label: { show: true, position: 'top', fontSize: 10, fontWeight: 700, color: '#374151' },
+                data: data.map(d => d.cerrados)
+            },
+            {
+                name: 'Abiertos', type: 'bar', barMaxWidth: 28,
+                itemStyle: { color: '#F44336', borderRadius: [3, 3, 0, 0] },
+                label: { show: true, position: 'top', fontSize: 10, fontWeight: 700, color: '#374151' },
+                data: data.map(d => d.abiertos)
+            }
+        ]
+    });
+    window.addEventListener('resize', () => { try { chart.resize(); } catch(e) {} });
+}
+
+/**
+ * Bugs vs Funcionalidad — barras apiladas con % como etiqueta de la barra total
+ * Mismo esquema de colores que el módulo existente: rojo/#F44336 bugs, verde/#4CAF50 func
+ */
+function _initBugsEvolChart(id, labels, data) {
+    const dom = document.getElementById(id);
+    if (!dom || typeof echarts === 'undefined') return;
+    if (_evolChartInstances[id]) { try { _evolChartInstances[id].dispose(); } catch(e) {} }
+
+    const chart = echarts.init(dom, null, { renderer: 'canvas' });
+    _evolChartInstances[id] = chart;
+
+    chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis', axisPointer: { type: 'shadow' },
+            appendToBody: true,
+            confine: false,
+            backgroundColor: '#FFFFFF',
+            borderColor: '#E5E7EB',
+            borderWidth: 1,
+            padding: [12, 16],
+            extraCssText: 'box-shadow:0 4px 12px rgba(0,0,0,.12);border-radius:8px;z-index:9999;',
+            formatter: params => {
+                const idx = labels.indexOf(params[0].axisValue);
+                const d = data[idx >= 0 ? idx : 0];
+                if (!d) return '';
+                const statusCol = d.pctSpBugs <= 30 ? '#059669' : d.pctSpBugs <= 50 ? '#D97706' : '#DC2626';
+                const statusBg  = d.pctSpBugs <= 30 ? '#D1FAE5' : d.pctSpBugs <= 50 ? '#FEF3C7' : '#FEE2E2';
+                const statusLbl = d.pctSpBugs <= 30 ? '✓ Bueno' : d.pctSpBugs <= 50 ? '⚠ Atención' : '✗ Alto';
+                
+                return '<div style="min-width:220px;">'
+                    + '<div style="font-size:12px;color:#6B7280;font-weight:600;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #E5E7EB;">Sprint ' + d.sprint + '</div>'
+                    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+                    + '<span style="font-size:28px;font-weight:700;color:#DC2626;">' + d.pctSpBugs.toFixed(1) + '%</span>'
+                    + '<span style="font-size:10px;font-weight:600;padding:4px 10px;border-radius:10px;background:' + statusBg + ';color:' + statusCol + ';">' + statusLbl + '</span>'
+                    + '</div>'
+                    + '<div style="font-size:10px;color:#6B7280;font-weight:600;text-transform:uppercase;margin-bottom:6px;">Distribución SP</div>'
+                    + '<div style="display:flex;gap:8px;margin-bottom:10px;">'
+                    + '<div style="flex:1;text-align:center;padding:6px;background:#FEF2F2;border-radius:6px;">'
+                    + '<div style="font-size:14px;font-weight:700;color:#DC2626;">' + d.spBugs + '</div>'
+                    + '<div style="font-size:9px;color:#991B1B;">Bugs</div>'
+                    + '</div>'
+                    + '<div style="flex:1;text-align:center;padding:6px;background:#F0FDF4;border-radius:6px;">'
+                    + '<div style="font-size:14px;font-weight:700;color:#10B981;">' + d.spFunc + '</div>'
+                    + '<div style="font-size:9px;color:#065F46;">Func.</div>'
+                    + '</div>'
+                    + (d.spOtros > 0 ? '<div style="flex:1;text-align:center;padding:6px;background:#F3F4F6;border-radius:6px;">'
+                    + '<div style="font-size:14px;font-weight:700;color:#6B7280;">' + d.spOtros + '</div>'
+                    + '<div style="font-size:9px;color:#6B7280;">Otros</div>'
+                    + '</div>' : '')
+                    + '</div>'
+                    + '<div style="padding-top:8px;border-top:1px solid #E5E7EB;font-size:10px;color:#6B7280;">'
+                    + '<div style="display:flex;justify-content:space-between;margin-bottom:2px;">'
+                    + '<span><span style="color:#DC2626;font-weight:600;">●</span> ' + d.bugs + ' bugs</span>'
+                    + '<span><span style="color:#10B981;font-weight:600;">●</span> ' + d.func + ' funcionalidad</span>'
+                    + (d.otros > 0 ? '<span><span style="color:#6B7280;font-weight:600;">●</span> ' + d.otros + ' otros</span>' : '')
+                    + '</div>'
+                    + '<div style="text-align:right;margin-top:4px;font-weight:600;">Total: ' + d.total + ' tickets · ' + d.spTotal + ' SP</div>'
+                    + '</div>'
+                    + '</div>';
+            }
+        },
+        legend: {
+            bottom: 4, textStyle: { color: '#6B7280', fontSize: 11, fontWeight: 500 },
+            icon: 'circle', itemWidth: 8, itemHeight: 8,
+            data: ['Bugs', 'Funcionalidad']
+        },
+        grid: { left: 8, right: 16, top: 24, bottom: 40, containLabel: true },
+        xAxis: {
+            type: 'category', data: labels,
+            axisLine: { lineStyle: { color: '#E5E7EB' } }, axisTick: { show: false },
+            axisLabel: { fontSize: 11, fontWeight: 600, color: '#374151' }
+        },
+        yAxis: {
+            type: 'value', max: 100,
+            splitLine: { lineStyle: { color: '#F3F4F6', type: 'dashed' } },
+            axisLine: { show: false }, axisTick: { show: false },
+            axisLabel: { fontSize: 10, color: '#9CA3AF', formatter: '{value}%' }
+        },
+        series: [
+            {
+                name: 'Bugs', type: 'bar', stack: 'total', barMaxWidth: 80,
+                itemStyle: { color: '#DC2626' },
+                data: data.map(d => d.pctSpBugs),
+                markLine: {
+                    silent: true,
+                    symbol: 'none',
+                    lineStyle: { type: 'dashed', width: 1.5 },
+                    label: { show: true, position: 'insideEndTop', fontSize: 10, fontWeight: 600 },
+                    data: [
+                        { yAxis: 30, lineStyle: { color: '#10B981' }, label: { formatter: '✓ 30%', color: '#10B981' } },
+                        { yAxis: 50, lineStyle: { color: '#F59E0B' }, label: { formatter: '⚠ 50%', color: '#F59E0B' } }
+                    ]
+                }
+            },
+            {
+                name: 'Funcionalidad', type: 'bar', stack: 'total',
+                itemStyle: { color: '#10B981', borderRadius: [3, 3, 0, 0] },
+                label: {
+                    show: true, position: 'top', fontWeight: 700, fontSize: 11, color: '#374151',
+                    formatter: p => {
+                        const d = data[p.dataIndex];
+                        return d ? d.pctSpBugs.toFixed(1) + '% bugs' : '';
+                    },
+                    distance: 5
+                },
+                data: data.map(d => d.pctSpFunc)
+            }
+        ]
+    });
+    window.addEventListener('resize', () => { try { chart.resize(); } catch(e) {} });
+}
+
+// _initEvolAreaChart — compatibilidad con código existente
+function _initEvolAreaChart(id, labels, data, color, unit, lowerIsBetter, goodThresh, warnThresh) {
+    _initEvolLineChart(id, labels, data, color, unit, lowerIsBetter, goodThresh, warnThresh);
+}
+
+/**
+ * Sparkline compacto — sin ejes
+ */
+function _initEvolSparkline(id, labels, data, color, unit) {
+    const el = document.getElementById(id);
+    if (!el || typeof echarts === 'undefined') return;
+    if (_evolChartInstances[id]) { try { _evolChartInstances[id].dispose(); } catch(e) {} }
+
+    const chart = echarts.init(el, null, { renderer: 'canvas' });
+    _evolChartInstances[id] = chart;
+
+    chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: {
+            trigger: 'axis', backgroundColor: '#1F2937', borderWidth: 0, padding: [8, 12],
+            textStyle: { color: '#F9FAFB', fontSize: 12, fontWeight: 600 },
+            formatter: params => params[0].name + ': <b>' + (params[0].value !== null ? params[0].value + unit : '—') + '</b>'
+        },
+        grid: { left: 0, right: 0, top: 4, bottom: 0 },
+        xAxis: { type: 'category', data: labels, show: false, boundaryGap: false },
+        yAxis: { type: 'value', show: false },
+        series: [{
+            type: 'line', data: data.map(v => v !== null ? v : null),
+            smooth: 0.4, symbol: 'circle', symbolSize: 5,
+            lineStyle: { color, width: 2 },
+            itemStyle: { color, borderColor: '#FFFFFF', borderWidth: 1.5 },
+            areaStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: color + '60' }, { offset: 1, color: color + '05' }
+                ])
+            },
+            connectNulls: false
+        }]
+    });
+    window.addEventListener('resize', () => { try { chart.resize(); } catch(e) {} });
+}
+
 window.calcularKPIsAvanzados = calcularKPIsAvanzados;
 window.renderKPIsAvanzados = renderKPIsAvanzados;
+window.renderEvolucionKPIsAvanzados = renderEvolucionKPIsAvanzados;
 window.actualizarKPIsAvanzados = actualizarKPIsAvanzados;
 window.toggleSection = toggleSection;
 window.mostrarTicketsRango = mostrarTicketsRango;

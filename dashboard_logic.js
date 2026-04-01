@@ -30,10 +30,6 @@ function initializeDashboard() {
     // Cargar datos de tickets
     allTickets = [...ticketsData];
     
-    // Actualizar información general
-    document.getElementById('last-update').textContent = new Date().toLocaleString('es-ES');
-    document.getElementById('total-tickets').textContent = allTickets.length;
-    
     // Poblar selector de meses
     populateMonthSelector();
     
@@ -52,6 +48,7 @@ function initializeDashboard() {
     // Renderizar todas las secciones
     updateDashboard();
     renderEvolucion();
+    if (typeof renderEvolucionKPIsAvanzados === 'function') renderEvolucionKPIsAvanzados();
     updateResumen();
     renderIncidentes();
 }
@@ -772,6 +769,7 @@ function recalcularKPIs() {
     updateDashboard();
     updateResumen();
     renderEvolucion();
+    if (typeof renderEvolucionKPIsAvanzados === 'function') renderEvolucionKPIsAvanzados();
     alert('✅ KPIs recalculados correctamente');
 }
 
@@ -1995,6 +1993,7 @@ function showView(section, viewName) {
         // Renderizar contenido específico según la vista
         if (viewName === 'evolucion') {
             renderEvolucion();
+            if (typeof renderEvolucionKPIsAvanzados === 'function') renderEvolucionKPIsAvanzados();
         } else if (viewName === 'resumen') {
             updateResumen();
         } else if (viewName === 'incidentes') {
