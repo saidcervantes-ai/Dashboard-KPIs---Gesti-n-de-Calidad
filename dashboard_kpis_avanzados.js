@@ -4293,6 +4293,19 @@ function renderEstimacionQASection(dataArray) {
             <td style="padding:6px 8px;text-align:center;font-size:11px;color:#374151;">${t.realH > 0 ? t.realH + 'h' : '—'}</td>
         </tr>`).join('');
 
+        // Totales sumando estimado y real de todos los tickets del sprint
+        const totalEstimado = data.tickets.reduce((acc, t) => acc + (Number(t.estimadoH) || 0), 0);
+        const totalReal     = data.tickets.reduce((acc, t) => acc + (Number(t.realH)     || 0), 0);
+        const fmtH = (n) => Number.isInteger(n) ? n : parseFloat(n.toFixed(1));
+        const totalRow = `<tr style="background:#F9FAFB;border-top:2px solid #1F2937;font-weight:700;">
+            <td style="padding:10px 12px;font-size:11px;color:#1F2937;text-transform:uppercase;letter-spacing:0.05em;font-weight:800;">Total</td>
+            <td style="padding:10px 12px;"></td>
+            <td style="padding:10px 12px;"></td>
+            <td style="padding:10px 8px;text-align:center;font-size:12px;color:#1F2937;font-weight:800;">${fmtH(totalEstimado)}h</td>
+            <td style="padding:10px 8px;text-align:center;font-size:12px;color:#1F2937;font-weight:800;">${fmtH(totalReal)}h</td>
+            <td style="padding:10px 10px;text-align:center;color:#9CA3AF;font-size:11px;">—</td>
+        </tr>`;
+
         const chartId = 'estimqa-chart-' + sprint;
         // Datos para el chart (top 12 por |desv|)
         const chartData = data.tickets.slice(0, 12).map(t => ({ clave: t.clave, est: t.estimadoH, real: t.realH }));
@@ -4315,7 +4328,7 @@ function renderEstimacionQASection(dataArray) {
                             <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#C4B5FD;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Real</th>
                             <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#FCA5A5;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Desviación</th>
                         </tr></thead>
-                        <tbody>${filas}</tbody>
+                        <tbody>${filas}${totalRow}</tbody>
                     </table>
                 </div>
             </div>
