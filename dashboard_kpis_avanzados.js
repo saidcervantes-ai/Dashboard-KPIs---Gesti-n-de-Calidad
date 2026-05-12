@@ -86,36 +86,104 @@ function parsearFechaAvanzada(fechaStr) {
 function calcularKPIsAvanzados(tickets, sprintActual = null) {
     console.log('[KPIs Avanzados] Calculando con', tickets.length, 'tickets');
     
-    // Para edad de tickets, mostrar tickets arrastrados del Sprint 37 al 38
-    // (tickets que estaban en progreso y no se finalizaron en S37)
-    const sprintsAbiertos = ['38'];
+    // Para edad de tickets, mostrar tickets arrastrados del Sprint 39 al 40
+    // (tickets que estaban en progreso y no se finalizaron en S39)
+    const sprintsAbiertos = ['41'];
     
-    // KPIs de calidad: sprints cerrados acumulados (35 + 36 + 37)
-    const sprintsCalidad = ['35', '36', '37'];
-    
+    // KPIs de calidad: sprints cerrados acumulados (35 + 36 + 37 + 38 + 39)
+const sprintsCalidad = ['35', '36', '37', '38', '39', '40'];
+
     // Lead Time: sprints cerrados (mismo array que sprintsCalidad)
-    const SPRINTS_LEAD_TIME = ['35', '36', '37'];
+    const SPRINTS_LEAD_TIME = ['35', '36', '37', '38', '39', '40'];
     
-    // Sprints para los nuevos KPIs (31–38, sin el masivo S30)
-    const sprintsVelocidad = ['31', '32', '33', '34', '35', '36', '37', '38'];
+    // Sprints para los nuevos KPIs (31–40, sin el masivo S30)
+    const sprintsVelocidad = ['31', '32', '33', '34', '35', '36', '37', '38', '39', '40', '41'];
+
+    // Estimación QA (campo introducido a partir del Sprint 39)
+    // Orden descendente: más reciente primero
+    const SPRINTS_ESTIMACION_QA = ['40', '39'];
+
+    // Cuellos de botella en arrastrados (KPI 09) — sprints con changelog
+    const SPRINTS_CUELLOS_BOTELLA = ['40', '39', '38', '37'];
+
+    // Helper: si existe getTicketsParaSprint, usar historico (estado al cierre del sprint)
+    const tk = (s) => (typeof getTicketsParaSprint === 'function')
+        ? getTicketsParaSprint(tickets, s)
+        : tickets;
+    // Para funciones que reciben array de sprints, concatenar el historico de todos
+    const tkMulti = (sprints) => {
+        if (typeof getTicketsParaSprint !== 'function') return tickets;
+        const seen = new Set();
+        const out = [];
+        sprints.forEach(s => {
+            getTicketsParaSprint(tickets, s).forEach(t => {
+                const key = t.clave + '|' + s;
+                if (!seen.has(key)) { seen.add(key); out.push(t); }
+            });
+        });
+        return out;
+    };
 
     return {
-        leadTimes: SPRINTS_LEAD_TIME.map(s => ({ sprint: s, data: calcularLeadTime(tickets, s) })),
+        leadTimes: SPRINTS_LEAD_TIME.map(s => ({ sprint: s, data: calcularLeadTime(tk(s), s) })),
         edadTickets: calcularEdadTickets(tickets, sprintsAbiertos),
         analisisErrores: calcularAnalisisErrores(tickets),
-        cycleTime: calcularCycleTime(tickets, sprintsCalidad),
-        rework: calcularRework(tickets, sprintsCalidad),
-        cargaPersona: calcularCargaPersona(tickets, sprintsCalidad),
+        cycleTime: calcularCycleTime(tkMulti(sprintsCalidad), sprintsCalidad),
+        rework: calcularRework(tkMulti(sprintsCalidad), sprintsCalidad),
+        cargaPersona: calcularCargaPersona(tkMulti(sprintsCalidad), sprintsCalidad),
+        estimacionQA: SPRINTS_ESTIMACION_QA.map(s => ({ sprint: s, data: calcularEstimacionQA(tk(s), s) })),
+        cuellosBotella: SPRINTS_CUELLOS_BOTELLA.map(s => ({ sprint: s, data: calcularCuellosBotellaArrastrados(tickets, s) })),
         scopeCreep: calcularScopeCreep(tickets, sprintsVelocidad),
-        velocidad: calcularVelocidadSprint(tickets, sprintsVelocidad),
+        velocidad: calcularVelocidadSprint(tkMulti(sprintsVelocidad), sprintsVelocidad),
         sprintActual: sprintActual
     };
 }
 
 // ==================== LEAD TIME ====================
 
+// Fechas de inicio de cada sprint (para acotar el Lead Time al sprint en que se cerró el ticket)
+// Regla: Lead Time = fechaResolución - max(fechaCreación, sprint.startDate)
+// Esto evita que tareas creadas con varios sprints de anticipación falseen la métrica.
+const LEAD_TIME_SPRINT_STARTS = {
+    '30': new Date(2025, 10, 24, 0, 0, 0),
+    '31': new Date(2025, 11, 8, 0, 0, 0),
+    '32': new Date(2026, 0, 5, 0, 0, 0),
+    '33': new Date(2026, 0, 19, 0, 0, 0),
+    '34': new Date(2026, 1, 2, 0, 0, 0),
+    '35': new Date(2026, 1, 16, 0, 0, 0),
+    '36': new Date(2026, 2, 2, 0, 0, 0),
+    '37': new Date(2026, 2, 16, 7, 0, 0),
+    '38': new Date(2026, 2, 29, 6, 0, 0),
+    '39': new Date(2026, 3, 13, 6, 0, 0),
+    '40': new Date(2026, 3, 27, 6, 0, 0),
+};
+
 /**
- * Calcula métricas de Lead Time (tiempo desde creación hasta resolución)
+ * Helper a nivel de módulo: obtiene la fecha en que el ticket entró por primera vez
+ * a un estado de trabajo (In Process / Code Review / In Test / In Test Dev).
+ * @returns {Date|null}
+ */
+function obtenerPrimerEnCurso(issueKey) {
+    if (typeof changelogData === 'undefined' || !changelogData[issueKey]) return null;
+    const historial = changelogData[issueKey];
+    const ESTADOS_TRABAJO = /^(in process|code review|in test|in test dev)$/i;
+    for (const tr of historial) {
+        if (ESTADOS_TRABAJO.test(String(tr.estado || '').trim())) {
+            const [fecha, hora] = String(tr.inicio || '').trim().split(' ');
+            if (!fecha) continue;
+            const [dd, mm, yyyy] = fecha.split('/').map(Number);
+            const [HH, MM] = (hora || '00:00').split(':').map(Number);
+            if (!dd || !mm || !yyyy) continue;
+            return new Date(yyyy, mm - 1, dd, HH || 0, MM || 0, 0);
+        }
+    }
+    return null;
+}
+
+/**
+ * Calcula métricas de Lead Time acotado al sprint de cierre.
+ * Inicio del reloj = max(fechaCreación, sprint.startDate)
+ * Fin del reloj   = fechaResolución
  * Solo considera tickets FINALIZADOS en el sprint seleccionado
  * @param {Array} tickets - Array de tickets
  * @param {string} sprintActual - Sprint a analizar (ej: '34')
@@ -124,8 +192,9 @@ function calcularKPIsAvanzados(tickets, sprintActual = null) {
 function calcularLeadTime(tickets, sprintActual = null) {
     console.log('[Lead Time] Calculando para sprint:', sprintActual || 'todos');
     
-    // Filtrar solo tickets finalizados con fechas válidas
+    // Filtrar solo tickets finalizados con fechas válidas (excluir Spikes para consistencia con dashboard)
     let ticketsFinalizados = tickets.filter(t => {
+        if (t.tipoIncidencia === 'Spike') return false;
         if (t.estadoNormalizado !== 'Finalizados') return false;
         if (!t.creada || !t.resuelta || t.resuelta === '') return false;
         
@@ -136,13 +205,22 @@ function calcularLeadTime(tickets, sprintActual = null) {
     });
     
     // Si hay sprint específico, filtrar por sprint de finalización
+    // Regla: un ticket "se finalizó en sprint N" si su historico[N].bucket === 'Finalizado'.
+    // Esto refleja el estado real al cierre del sprint (fuente: changelog Jira),
+    // independiente del campo plano t.sprint (que apunta al último sprint asignado).
     if (sprintActual) {
+        const spKey = String(sprintActual);
         ticketsFinalizados = ticketsFinalizados.filter(t => {
-            // El campo sprint puede ser "34" o "Sprint 34"
-            const sprintStr = String(t.sprint || '').trim();
-            const sprintNum = sprintStr.match(/\d+/) ? sprintStr.match(/\d+/)[0] : '0';
-            const match = String(sprintNum) === String(sprintActual);
-            return match;
+            if (t.historico && t.historico[spKey] && t.historico[spKey].bucket === 'Finalizado') {
+                return true;
+            }
+            // Fallback (compatibilidad): tickets sin historico, usar campo plano
+            if (!t.historico || Object.keys(t.historico).length === 0) {
+                const sprintStr = String(t.sprint || '').trim();
+                const sprintNum = sprintStr.match(/\d+/) ? sprintStr.match(/\d+/)[0] : '0';
+                return String(sprintNum) === spKey;
+            }
+            return false;
         });
         console.log('[Lead Time] Tickets finalizados en Sprint', sprintActual, ':', ticketsFinalizados.length);
     }
@@ -159,15 +237,46 @@ function calcularLeadTime(tickets, sprintActual = null) {
         };
     }
     
+    // Helper: obtenerPrimerEnCurso está definido a nivel de módulo (ver arriba).
+
     // Calcular lead time para cada ticket
+    // REGLA: Lead Time = tiempo desde que el ticket COMENZO a trabajarse hasta que se finalizo.
+    //   inicio = primerEnCurso (primera vez que entro a In Process / Code Review / In Test / In Test Dev)
+    //   fin    = fechaResolucion
+    // Si no hay primerEnCurso (changelog faltante), usar fallback: max(fechaCreacion, sprint.startDate)
+    // Esto excluye correctamente el tiempo que el ticket estuvo parado en "To Do" antes de empezar.
     const ticketsConLeadTime = ticketsFinalizados.map(t => {
         const creada = parsearFechaAvanzada(t.creada);
         const resuelta = parsearFechaAvanzada(t.resuelta);
-        const dias = Math.round((resuelta - creada) / (1000 * 60 * 60 * 24));
-        
+
+        const sprintStr = String(t.sprint || '').trim();
+        const sprintMatch = sprintStr.match(/(\d+)/);
+        const sprintNum = sprintMatch ? sprintMatch[1] : null;
+        const sprintStart = sprintNum ? LEAD_TIME_SPRINT_STARTS[sprintNum] : null;
+        const primerEnCurso = obtenerPrimerEnCurso(t.clave);
+
+        let inicio, modo;
+        if (primerEnCurso) {
+            // Caso normal: usar el momento real en que se empezo a trabajar.
+            inicio = primerEnCurso;
+            modo = 'enCurso';
+        } else if (sprintStart && sprintStart > creada) {
+            // Fallback: ticket sin changelog, creado antes del sprint -> usar inicio del sprint
+            inicio = sprintStart;
+            modo = 'sprint';
+        } else {
+            // Fallback final: usar fecha de creacion
+            inicio = creada;
+            modo = 'creacion';
+        }
+
+        const dias = Math.round((resuelta - inicio) / (1000 * 60 * 60 * 24));
+
         return {
             ...t,
-            leadTimeDias: Math.max(0, dias) // No permitir negativos
+            leadTimeDias: Math.max(0, dias), // No permitir negativos
+            leadTimeAcotado: modo !== 'creacion', // marca si se aplicó capping
+            leadTimeOrigen: modo // 'enCurso' | 'sprint' | 'creacion'
         };
     });
     
@@ -363,23 +472,38 @@ function calcularDiasPorEstado(issueKey) {
 function calcularEdadTickets(tickets, sprintsFilter = null) {
     console.log('[Edad Tickets] Calculando con changelog...');
     
-    // Filtrar solo tickets abiertos (NO finalizados, NO "Tareas por hacer")
-    const EXCLUIR_ESTADOS = ['finalizados', 'tareas por hacer', 'to do', 'backlog'];
-    let ticketsAbiertos = tickets.filter(t => {
-        const enNorm = (t.estadoNormalizado || '').toLowerCase().trim();
-        const enActual = (t.estado || '').toLowerCase().trim();
-        return !EXCLUIR_ESTADOS.includes(enNorm) && !EXCLUIR_ESTADOS.includes(enActual) && t.creada;
-    });
-    
-    // Filtrar por sprints si se especifica
+    // Si hay sprintsFilter, usar historico para incluir todos los tickets que estuvieron
+    // "En curso" al cierre del sprint (Blocked, CODE REVIEW, IN TEST DEV, In Process, etc.)
+    // Esto evita perder tickets cuyo t.estado raw fue mal clasificado en el CSV.
+    let ticketsAbiertos = [];
     if (sprintsFilter && sprintsFilter.length > 0) {
-        ticketsAbiertos = ticketsAbiertos.filter(t => {
-            const sprintStr = String(t.sprint || '').trim();
-            const match = sprintStr.match(/(\d+)/);
-            const sprintNum = match ? match[1] : null;
-            return sprintNum && sprintsFilter.includes(sprintNum);
+        const sprintsSet = new Set(sprintsFilter.map(String));
+        const seen = new Set();
+        for (const t of tickets) {
+            if (!t.historico) continue;
+            for (const sp of sprintsSet) {
+                const h = t.historico[sp];
+                if (h && h.bucket === 'En curso' && !seen.has(t.clave)) {
+                    seen.add(t.clave);
+                    ticketsAbiertos.push({
+                        ...t,
+                        estado: h.estado,           // estado raw del historico (Blocked, CODE REVIEW, etc.)
+                        estadoNormalizado: 'En curso',
+                        sprint: sp
+                    });
+                    break;
+                }
+            }
+        }
+        console.log(`[Edad Tickets] Via historico para sprints ${sprintsFilter.join(', ')}: ${ticketsAbiertos.length} tickets`);
+    } else {
+        // Fallback: filtrado tradicional por t.estado (sin sprint)
+        const EXCLUIR_ESTADOS = ['finalizados', 'tareas por hacer', 'to do', 'backlog'];
+        ticketsAbiertos = tickets.filter(t => {
+            const enNorm = (t.estadoNormalizado || '').toLowerCase().trim();
+            const enActual = (t.estado || '').toLowerCase().trim();
+            return !EXCLUIR_ESTADOS.includes(enNorm) && !EXCLUIR_ESTADOS.includes(enActual) && t.creada;
         });
-        console.log(`[Edad Tickets] Filtrado por sprints ${sprintsFilter.join(', ')}: ${ticketsAbiertos.length} tickets`);
     }
     
     // Solo tickets activos en estados de tracking (Finalizados y Tareas por hacer excluidos arriba)
@@ -500,22 +624,42 @@ function calcularEdadTickets(tickets, sprintsFilter = null) {
  */
 function calcularAnalisisErrores(tickets) {
     console.log('[Análisis Errores] Calculando...');
-    
-    // FILTRO CRÍTICO: Solo tickets finalizados o en curso (NO "Tareas por hacer" ni "Arrastrado")
-    // "Arrastrado" se excluye porque esos tickets ya se cuentan en el sprint siguiente,
-    // incluirlos inflaría el denominador con Features de alto SP y diluiría el % de Bugs.
-    const ticketsValidos = tickets.filter(t => {
-        const estadoNorm = (t.estadoNormalizado || '').toLowerCase();
-        const estadoRaw  = (t.estado || '').toLowerCase();
-        const excluirEstados = ['tareas por hacer', 'to do', 'backlog'];
-        return !excluirEstados.some(estado => estadoNorm.includes(estado))
-            && estadoRaw !== 'arrastrado';
-    });
-    
-    console.log(`[Análisis Errores] Tickets totales: ${tickets.length}, Tickets válidos (sin "Por hacer"): ${ticketsValidos.length}`);
-    
-    // Agrupar por Sprint solo los tickets válidos
-    const porSprint = agruparPorSprint(ticketsValidos);
+
+    // Agrupar por sprint usando HISTORICO (estado real al cierre de cada sprint),
+    // no el campo plano t.sprint (que apunta al ultimo sprint asignado al ticket).
+    // Esto asegura que tickets arrastrados que cerraron Finalizado en sprint N
+    // se cuenten en N, no en su sprint plano.
+    // Excluimos del conteo solo los buckets "Tareas por hacer" (no trabajado en el sprint).
+    function agruparPorSprintHistorico(tks) {
+        const grupos = {};
+        for (const t of tks) {
+            if (t.historico && Object.keys(t.historico).length > 0) {
+                for (const sprintKey of Object.keys(t.historico)) {
+                    const h = t.historico[sprintKey];
+                    if (!h || !h.bucket) continue;
+                    if (h.bucket === 'Tareas por hacer') continue; // no trabajado
+                    const key = `Sprint ${sprintKey}`;
+                    if (!grupos[key]) grupos[key] = [];
+                    grupos[key].push(t);
+                }
+            } else {
+                // Fallback: ticket sin historico, usar t.sprint plano
+                const estadoRaw = (t.estado || '').toLowerCase();
+                const estadoNorm = (t.estadoNormalizado || '').toLowerCase();
+                if (estadoRaw === 'arrastrado') continue;
+                if (['tareas por hacer', 'to do', 'backlog'].some(e => estadoNorm.includes(e))) continue;
+                const sprintStr = String(t.sprint || '').trim();
+                const m = sprintStr.match(/(\d+)/);
+                if (!m) continue;
+                const key = `Sprint ${m[1]}`;
+                if (!grupos[key]) grupos[key] = [];
+                grupos[key].push(t);
+            }
+        }
+        return grupos;
+    }
+
+    const porSprint = agruparPorSprintHistorico(tickets);
     
     // Calcular análisis para cada sprint (EXCLUYENDO Sprint 30)
     const analisisSprints = Object.keys(porSprint)
@@ -633,16 +777,25 @@ function calcularAnalisisErrores(tickets) {
     // Calcular tendencia (últimos 3 sprints)
     const ultimos3 = analisisSprints.slice(-3);
     const tendencia = calcularTendenciaErrores(ultimos3);
-    
-    // Resumen general (usando solo tickets válidos)
-    const totalBugs = ticketsValidos.filter(t => 
+
+    // Resumen general: deduplicar tickets que pueden aparecer en multiples sprints
+    // (porque el agrupamiento por historico cuenta un mismo ticket arrastrado en cada sprint).
+    const ticketsValidosUnicos = [];
+    const vistos = new Set();
+    for (const grupo of Object.values(porSprint)) {
+        for (const t of grupo) {
+            if (!vistos.has(t.clave)) { vistos.add(t.clave); ticketsValidosUnicos.push(t); }
+        }
+    }
+
+    const totalBugs = ticketsValidosUnicos.filter(t =>
         t.tipoIncidencia && (
             t.tipoIncidencia.toLowerCase().includes('bug') ||
             t.tipoIncidencia.toLowerCase().includes('error')
         )
     ).length;
-    
-    const totalFuncionalidades = ticketsValidos.filter(t => 
+
+    const totalFuncionalidades = ticketsValidosUnicos.filter(t =>
         t.tipoIncidencia && (
             t.tipoIncidencia.toLowerCase().includes('task') ||
             t.tipoIncidencia.toLowerCase().includes('tarea') ||
@@ -759,6 +912,22 @@ function calcularCycleTime(tickets, sprintsCalidad = ['35', '36', '37']) {
     // Estados que NO cuentan como tiempo activo del ciclo
     const estadosIgnorar = new Set(['to do', 'tareas por hacer', 'done', 'finalizada', 'finalizados', 'finalizado']);
 
+    // Rangos de fecha por sprint para acotar el cálculo de cycle time
+    const SPRINT_RANGES_CT = {
+        '30': { start: new Date(2025, 10, 24, 0, 0, 0), end: new Date(2025, 11, 8, 0, 0, 0) },
+        '31': { start: new Date(2025, 11, 8, 0, 0, 0),  end: new Date(2026, 0, 5, 0, 0, 0) },
+        '32': { start: new Date(2026, 0, 5, 0, 0, 0),   end: new Date(2026, 0, 19, 0, 0, 0) },
+        '33': { start: new Date(2026, 0, 19, 0, 0, 0),  end: new Date(2026, 1, 2, 0, 0, 0) },
+        '34': { start: new Date(2026, 1, 2, 0, 0, 0),   end: new Date(2026, 1, 16, 0, 0, 0) },
+        '35': { start: new Date(2026, 1, 16, 0, 0, 0),  end: new Date(2026, 2, 2, 0, 0, 0) },
+        '36': { start: new Date(2026, 2, 2, 0, 0, 0),   end: new Date(2026, 2, 16, 7, 0, 0) },
+        '37': { start: new Date(2026, 2, 16, 7, 0, 0),  end: new Date(2026, 2, 30, 12, 36, 0) },
+        '38': { start: new Date(2026, 2, 29, 6, 0, 0),  end: new Date(2026, 3, 14, 7, 48, 0) },
+        '39': { start: new Date(2026, 3, 13, 6, 0, 0),  end: new Date(2026, 3, 28, 11, 0, 0) },
+        '40': { start: new Date(2026, 3, 27, 6, 0, 0),  end: new Date(2026, 4, 11, 13, 52, 0) },
+        '41': { start: new Date(2026, 4, 11, 6, 0, 0),  end: null },
+    };
+
     // Helpers locales: calcular minutos hábiles desde inicio/fin en changelog
     const MINS_POR_DIA = 9 * 60; // 540
     const MIN_CARRIL_MINS_S35_S36 = 30; // 0.5h
@@ -818,6 +987,9 @@ function calcularCycleTime(tickets, sprintsCalidad = ['35', '36', '37']) {
         // para aplicar el mínimo de 0.5h también en transiciones instantáneas/fuera de horario.
         const etapasVisitadas = new Set();
 
+        // Rango del sprint para acotar el changelog (solo tiempo dentro del sprint)
+        const sprintRange = SPRINT_RANGES_CT[sprintNum] || null;
+
         if (historial && historial.length > 0) {
             historial.forEach(entrada => {
                 const key = (entrada.estado || '').toLowerCase().trim();
@@ -825,10 +997,19 @@ function calcularCycleTime(tickets, sprintsCalidad = ['35', '36', '37']) {
                 const etapa = estadoAEtapa[key];
                 if (!etapa) return;
 
-                etapasVisitadas.add(etapa); // marcar como visitada independientemente del tiempo
+                let ini = parseFechaChangelog(entrada.inicio);
+                let fin = parseFechaChangelog(entrada.fin);
 
-                const ini = parseFechaChangelog(entrada.inicio);
-                const fin = parseFechaChangelog(entrada.fin);
+                // Acotar al rango del sprint: solo contar tiempo que se solape
+                if (sprintRange && ini && fin) {
+                    if (fin <= sprintRange.start) return; // entrada totalmente antes del sprint
+                    if (sprintRange.end && ini >= sprintRange.end) return; // entrada totalmente después del sprint
+                    if (ini < sprintRange.start) ini = sprintRange.start; // recortar inicio
+                    if (sprintRange.end && fin > sprintRange.end) fin = sprintRange.end; // recortar fin
+                }
+
+                etapasVisitadas.add(etapa); // marcar como visitada solo si solapa con el sprint
+
                 let mins = 0;
                 if (ini && fin) {
                     const minsHab = minutosHabiles(ini, fin);
@@ -919,12 +1100,17 @@ function calcularReworkPorSprint(tickets, sprint) {
     // Sprint 35: 16 Feb 2026 - 02 Mar 2026
     // Sprint 36: 02 Mar 2026 - 16 Mar 2026 (completeDate: 16/03/2026 18:34)
     // Sprint 37: 16 Mar 2026 - 30 Mar 2026 (completeDate: 30/03/2026 12:36)
-    // Sprint 38: 29 Mar 2026 - activo (startDate: 29/03/2026 06:00)
+    // Sprint 38: 29 Mar 2026 - 14 Abr 2026 (completeDate: 14/04/2026 07:48)
+    // Sprint 39: 13 Abr 2026 - 28 Abr 2026 (completeDate: 28/04/2026 11:00)
+    // Sprint 40: 27 Abr 2026 - activo (startDate: 27/04/2026 06:00)
     const SPRINT_RANGES = {
         '35': { start: new Date(2026, 1, 16, 0, 0, 0),  end: new Date(2026, 2, 2, 0, 0, 0) },
         '36': { start: new Date(2026, 2, 2, 0, 0, 0),   end: new Date(2026, 2, 16, 7, 0, 0) },
         '37': { start: new Date(2026, 2, 16, 7, 0, 0),  end: new Date(2026, 2, 30, 12, 36, 0) },
-        '38': { start: new Date(2026, 2, 29, 6, 0, 0),  end: null },
+        '38': { start: new Date(2026, 2, 29, 6, 0, 0),  end: new Date(2026, 3, 14, 7, 48, 0) },
+        '39': { start: new Date(2026, 3, 13, 6, 0, 0),  end: new Date(2026, 3, 28, 11, 0, 0) },
+        '40': { start: new Date(2026, 3, 27, 6, 0, 0),  end: new Date(2026, 4, 11, 13, 52, 0) },
+        '41': { start: new Date(2026, 4, 11, 6, 0, 0),  end: null },
     };
 
     function parseFechaChangelog(fechaStr) {
@@ -1058,6 +1244,8 @@ function renderKPIsAvanzados(kpis) {
         ${renderEdadTicketsSection(kpis.edadTickets)}
         ${renderAnalisisErroresSection(kpis.analisisErrores)}
         ${renderCargaPersonaSection(kpis.cargaPersona)}
+        ${renderEstimacionQASection(kpis.estimacionQA)}
+        ${renderCuellosBotellaSection(kpis.cuellosBotella)}
     `;
     
     container.innerHTML = html;
@@ -1066,7 +1254,7 @@ function renderKPIsAvanzados(kpis) {
     if (typeof lucide !== 'undefined') {
         lucide.createIcons();
     }
-    
+
     console.log('[KPIs Avanzados] Renderizado completado');
 }
 
@@ -1729,7 +1917,7 @@ function showSLEPopup(sprintKey, pType) {
         stageField  = sm.field;
         filtered    = tickets.filter(t => (t.etapas?.[sm.field]||0) > 0).sort((a,b) => (b.etapas?.[sm.field]||0) - (a.etapas?.[sm.field]||0));
         title       = `${sm.label} · ${sm.section} — ${filtered.length} tickets`;
-        subtitle    = `Tickets con tiempo registrado en la etapa "${sm.label}", ordenados de mayor a menor.`;
+        subtitle    = `Tickets <b>finalizados</b> en el sprint que pasaron por la etapa "${sm.label}" (no es el estado actual). Ordenados por tiempo en la etapa.`;
         accentColor = sm.color;
     } else {
         filtered    = tickets.filter(t => (t.diasTotal||0) > p90).sort((a,b) => b.diasTotal - a.diasTotal);
@@ -1828,18 +2016,18 @@ function actualizarKPIsAvanzados() {
     
     console.log('[KPIs Avanzados] Datos disponibles:', ticketsSource.length, 'tickets');
     
-    // Para KPIs Avanzados, usar TODOS los tickets para análisis global
-    // (Los KPIs se encargan internamente de agrupar por sprint)
-    let tickets = [...ticketsSource];
-    
-    console.log('[KPIs Avanzados] Usando todos los tickets para análisis:', tickets.length);
-    
     // Detectar sprint actual del filtro principal
     const tipoFiltro = document.getElementById('filter-type-selector')?.value;
     const valorFiltro = document.getElementById('filter-value-selector')?.value;
     const sprintActual = (tipoFiltro === 'sprint' && valorFiltro !== 'all') ? valorFiltro : null;
     
     console.log('[KPIs Avanzados] Sprint seleccionado:', sprintActual || 'Todos');
+    
+    // Para KPIs Avanzados, usar TODOS los tickets para análisis global
+    // (Los KPIs se encargan internamente de agrupar por sprint via historico)
+    let tickets = [...ticketsSource];
+    
+    console.log('[KPIs Avanzados] Usando todos los tickets para análisis:', tickets.length);
     
     // Calcular y renderizar
     const kpis = calcularKPIsAvanzados(tickets, sprintActual);
@@ -1925,32 +2113,65 @@ window.collapseAllSections = collapseAllSections;
 function mostrarTicketsRango(label, min, max, sprintActual) {
     console.log('[Modal] mostrarTicketsRango llamado con:', { label, min, max, sprintActual });
     
-    // Obtener los KPIs actuales
-    const ticketsSource = (typeof allTickets !== 'undefined' && allTickets.length > 0) ? allTickets : 
-                         (typeof ticketsData !== 'undefined' ? ticketsData : []);
+    // Usar SIEMPRE ticketsData (fuente completa) en lugar de allTickets,
+    // porque allTickets puede estar filtrado por el dropdown de sprint en la UI
+    // y excluiria tickets cuyo t.sprint plano != sprintActual aunque su historico
+    // si los tenga como Finalizado en ese sprint.
+    const ticketsSource = (typeof ticketsData !== 'undefined') ? ticketsData :
+                         ((typeof allTickets !== 'undefined') ? allTickets : []);
     
     // Calcular lead time para todos los tickets finalizados
-    let ticketsConLeadTime = ticketsSource.filter(t => {
-        if (t.estadoNormalizado !== 'Finalizados') return false;
-        if (!t.creada || !t.resuelta || t.resuelta === '') return false;
-        return true;
-    }).map(t => {
-        const creada = parsearFechaAvanzada(t.creada);
-        const resuelta = parsearFechaAvanzada(t.resuelta);
-        const dias = Math.round((resuelta - creada) / (1000 * 60 * 60 * 24));
-        return { ...t, leadTimeDias: Math.max(0, dias) };
-    });
-    
-    // Filtrar por sprint si se especificó
+    // Misma logica que calcularLeadTime(): inicio = primerEnCurso || max(creada, sprintStart)
+    let ticketsConLeadTime;
+
     if (sprintActual && sprintActual !== '') {
         console.log('[Modal] Filtrando por sprint:', sprintActual);
-        ticketsConLeadTime = ticketsConLeadTime.filter(t => {
-            const sprintStr = String(t.sprint || '').trim();
-            const sprintNum = sprintStr.match(/\d+/) ? sprintStr.match(/\d+/)[0] : '0';
-            return String(sprintNum) === String(sprintActual);
+        const spKey = String(sprintActual);
+        // Filtrar por historico[sprint].bucket === 'Finalizado' (NO por estadoNormalizado plano,
+        // porque un ticket puede haber sido reabierto despues y su estadoNormalizado actual
+        // ya no ser 'Finalizados' aunque al cierre del sprint si lo estaba).
+        ticketsConLeadTime = ticketsSource.filter(t => {
+            if (t.tipoIncidencia === 'Spike') return false;
+            if (!t.creada || !t.resuelta || t.resuelta === '') return false;
+            if (t.historico && t.historico[spKey] && t.historico[spKey].bucket === 'Finalizado') {
+                return true;
+            }
+            if (!t.historico || Object.keys(t.historico).length === 0) {
+                const sprintStr = String(t.sprint || '').trim();
+                const sprintNum = sprintStr.match(/\d+/) ? sprintStr.match(/\d+/)[0] : '0';
+                return String(sprintNum) === spKey && (t.estadoNormalizado === 'Finalizados');
+            }
+            return false;
         });
         console.log('[Modal] Tickets después de filtro de sprint:', ticketsConLeadTime.length);
+    } else {
+        // Sin sprint: usar estadoNormalizado plano
+        ticketsConLeadTime = ticketsSource.filter(t => {
+            if (t.tipoIncidencia === 'Spike') return false;
+            if (t.estadoNormalizado !== 'Finalizados') return false;
+            if (!t.creada || !t.resuelta || t.resuelta === '') return false;
+            return true;
+        });
     }
+
+    ticketsConLeadTime = ticketsConLeadTime.map(t => {
+        const creada = parsearFechaAvanzada(t.creada);
+        const resuelta = parsearFechaAvanzada(t.resuelta);
+        // Cuando hay sprintActual, usar ese sprint para el sprintStart (no el campo plano,
+        // que puede apuntar al sprint final del ticket si fue reasignado).
+        const sprintNumEfectivo = (sprintActual && sprintActual !== '') ? String(sprintActual) :
+            (() => { const m = String(t.sprint || '').trim().match(/(\d+)/); return m ? m[1] : null; })();
+        const sprintStart = sprintNumEfectivo && typeof LEAD_TIME_SPRINT_STARTS !== 'undefined' ? LEAD_TIME_SPRINT_STARTS[sprintNumEfectivo] : null;
+        const primerEnCurso = (typeof obtenerPrimerEnCurso === 'function') ? obtenerPrimerEnCurso(t.clave) : null;
+
+        let inicio;
+        if (primerEnCurso) inicio = primerEnCurso;
+        else if (sprintStart && sprintStart > creada) inicio = sprintStart;
+        else inicio = creada;
+
+        const dias = Math.round((resuelta - inicio) / (1000 * 60 * 60 * 24));
+        return { ...t, leadTimeDias: Math.max(0, dias), sprint: sprintNumEfectivo || t.sprint };
+    });
     
     // Filtrar por rango
     console.log('[Modal] Total tickets con lead time:', ticketsConLeadTime.length);
@@ -3154,11 +3375,9 @@ function _calcularCargaPersonaSprint(tickets, sprint, clData) {
         const tipo = (t.tipoIncidencia || '').toLowerCase();
         const d = personas[p];
         const tkEntry = { c: t.clave, r: (t.resumen || '').slice(0, 80), t: t.tipoIncidencia || '', se: spEst, sr: spReal, e: t.estadoNormalizado || t.estado || '' };
-        
         // Calcular capacidad comprometida (SP estimado de TODOS los tickets del sprint)
         d.capacidadComp += spEst;
         d.tkCompromiso.push(tkEntry);
-        
         d.total++;
         d.spEstimado += spEst;
         d.spReal     += spReal;
@@ -3257,6 +3476,180 @@ function calcularCargaPersona(tickets, sprints) {
     const clData = (typeof changelogData !== 'undefined') ? changelogData : {};
     // Retornar array de objetos, uno por sprint (igual que Lead Time / Cycle Time)
     return sprints.map(s => _calcularCargaPersonaSprint(tickets, s, clData));
+}
+
+// ==================== ESTIMACIÓN QA vs REAL ====================
+// A partir del Sprint 39 cada ticket lleva el campo "Estimación QA" (horas).
+// Este KPI compara las horas estimadas contra el tiempo real laboral que
+// pasó el ticket en el carril "In Test" (no incluye fines de semana ni
+// fuera de horario laboral L-V 08:00-17:00 = 9h/día = 540 min).
+
+/**
+ * Suma minutos hábiles entre dos fechas considerando jornada L-V 08:00-17:00.
+ */
+function _minutosHabilesQA(inicio, fin) {
+    if (!inicio || !fin || fin <= inicio) return 0;
+    let total = 0;
+    let current = new Date(inicio.getTime());
+    while (current < fin) {
+        const dow = current.getDay(); // 0=Dom..6=Sab
+        if (dow >= 1 && dow <= 5) {
+            const y = current.getFullYear();
+            const m = current.getMonth();
+            const d = current.getDate();
+            const labInicio = new Date(y, m, d, 8, 0, 0);
+            const labFin = new Date(y, m, d, 17, 0, 0);
+            const desde = current > labInicio ? current : labInicio;
+            const hasta = fin < labFin ? fin : labFin;
+            if (hasta > desde) total += (hasta - desde) / 60000;
+        }
+        current = new Date(current.getFullYear(), current.getMonth(), current.getDate() + 1, 0, 0, 0);
+    }
+    return Math.max(0, Math.round(total));
+}
+
+function _parseFechaCLQA(fechaStr) {
+    if (!fechaStr || fechaStr === 'En curso') return null;
+    const [fecha, hora] = String(fechaStr).trim().split(' ');
+    if (!fecha || !hora) return null;
+    const [dd, mm, yyyy] = fecha.split('/').map(Number);
+    const [HH, MM] = hora.split(':').map(Number);
+    if (!dd || !mm || !yyyy) return null;
+    return new Date(yyyy, mm - 1, dd, HH || 0, MM || 0, 0);
+}
+
+/**
+ * Calcula horas reales en el carril "In Test" (laborales) para un ticket.
+ * Suma todas las visitas a "In Test" en el changelog.
+ */
+function _horasRealesEnInTest(issueKey) {
+    if (typeof changelogData === 'undefined' || !changelogData[issueKey]) return 0;
+    const historial = changelogData[issueKey];
+    let totalMin = 0;
+    historial.forEach(tr => {
+        const estado = String(tr.estado || '').toLowerCase().trim();
+        // Coincide con "In Test" (no con "In Test Dev")
+        if (estado !== 'in test') return;
+        const ini = _parseFechaCLQA(tr.inicio);
+        const fin = _parseFechaCLQA(tr.fin);
+        if (!ini || !fin) return;
+        totalMin += _minutosHabilesQA(ini, fin);
+    });
+    const horas = parseFloat((totalMin / 60).toFixed(2));
+    // Piso de 0.5h: cualquier valor inferior a 1h (incluido 0) se redondea a media hora
+    // para evitar discrepancias por tránsitos muy cortos o tickets que no pasaron por In Test.
+    if (horas < 1) return 0.5;
+    return horas;
+}
+
+/**
+ * Calcula KPIs de Estimación QA vs Real para un sprint.
+ * @param {Array} tickets - Todos los tickets
+ * @param {string} sprintActual - Sprint a analizar (ej. '39')
+ * @returns {Object} { tickets, totalTickets, conEstimacion, sinEstimacion,
+ *   sumaEstimado, sumaReal, desviacionTotalPct, precision, promedioEstimado, promedioReal }
+ */
+function calcularEstimacionQA(tickets, sprintActual) {
+    // Solo tickets del sprint y que tengan estimación QA cargada
+    const ticketsSprint = tickets.filter(t => {
+        const sprintStr = String(t.sprint || '').trim();
+        const sprintNum = sprintStr.match(/\d+/) ? sprintStr.match(/\d+/)[0] : '';
+        return String(sprintNum) === String(sprintActual);
+    });
+
+    // Solo FINALIZADOS en este sprint. Esto excluye automáticamente los Arrastrados,
+    // En curso, Tareas por hacer, etc. — que no se deben evaluar contra la estimación QA.
+    const ticketsFinalizados = ticketsSprint.filter(t => t.estadoNormalizado === 'Finalizados');
+
+    // Excluir epics, spikes, subtareas (no se prueban directamente)
+    const ticketsValidos = ticketsFinalizados.filter(t => {
+        const tipo = (t.tipoIncidencia || '').toLowerCase();
+        if (tipo.includes('epic') || tipo.includes('spike') || tipo.includes('subtarea')) return false;
+        return true;
+    });
+
+    const conEstimacion = [];
+    const sinEstimacion = [];
+
+    ticketsValidos.forEach(t => {
+        const estimadoH = parseFloat(t.estimacionQA);
+        const tieneEstimacion = !isNaN(estimadoH) && estimadoH > 0;
+        const realCrudoH = _horasRealesEnInTest(t.clave);
+
+        // Regla de ajuste del valor real:
+        //  • si real > estimado + 2h  → acotar a estimado + 2h (evita penalizar por esperas, fines de semana, etc.)
+        //  • en cualquier otro caso  → dejar el valor crudo (incluido el piso de 0.5h ya aplicado en _horasRealesEnInTest)
+        let realH = realCrudoH;
+        let ajustado = false;
+        if (tieneEstimacion && realCrudoH > estimadoH + 2) {
+            realH = parseFloat((estimadoH + 2).toFixed(2));
+            ajustado = true;
+        }
+
+        if (tieneEstimacion) {
+            const desvH = parseFloat((realH - estimadoH).toFixed(2));
+            const desvPct = estimadoH > 0 ? parseFloat(((realH - estimadoH) / estimadoH * 100).toFixed(1)) : 0;
+            const dentroDeRango = Math.abs(desvPct) <= 20; // ±20%
+            conEstimacion.push({
+                clave: t.clave,
+                resumen: t.resumen,
+                tipo: t.tipoIncidencia,
+                asignado: t.asignado,
+                estado: t.estado,
+                estimadoH,
+                realH,
+                realCrudoH,
+                desvH,
+                desvPct,
+                dentroDeRango,
+                ajustado
+            });
+        } else {
+            sinEstimacion.push({
+                clave: t.clave,
+                resumen: t.resumen,
+                tipo: t.tipoIncidencia,
+                asignado: t.asignado,
+                estado: t.estado,
+                realH: realCrudoH
+            });
+        }
+    });
+
+    const sumaEstimado = parseFloat(conEstimacion.reduce((s, t) => s + t.estimadoH, 0).toFixed(1));
+    const sumaReal = parseFloat(conEstimacion.reduce((s, t) => s + t.realH, 0).toFixed(1));
+    const desviacionTotalPct = sumaEstimado > 0
+        ? parseFloat(((sumaReal - sumaEstimado) / sumaEstimado * 100).toFixed(1))
+        : 0;
+    const dentroRango = conEstimacion.filter(t => t.dentroDeRango).length;
+    const precision = conEstimacion.length > 0
+        ? parseFloat(((dentroRango / conEstimacion.length) * 100).toFixed(1))
+        : 0;
+    const promedioEstimado = conEstimacion.length > 0
+        ? parseFloat((sumaEstimado / conEstimacion.length).toFixed(2))
+        : 0;
+    const promedioReal = conEstimacion.length > 0
+        ? parseFloat((sumaReal / conEstimacion.length).toFixed(2))
+        : 0;
+    const cobertura = ticketsValidos.length > 0
+        ? parseFloat(((conEstimacion.length / ticketsValidos.length) * 100).toFixed(1))
+        : 0;
+
+    return {
+        tickets: conEstimacion.sort((a, b) => Math.abs(b.desvPct) - Math.abs(a.desvPct)),
+        sinEstimacion,
+        totalTickets: ticketsValidos.length,
+        totalConEstimacion: conEstimacion.length,
+        totalSinEstimacion: sinEstimacion.length,
+        cobertura,
+        sumaEstimado,
+        sumaReal,
+        desviacionTotalPct,
+        precision,
+        dentroRango,
+        promedioEstimado,
+        promedioReal
+    };
 }
 
 // ── FUNCIONES GLOBALES PARA EL POPUP ─────────────────────────────────
@@ -3846,12 +4239,144 @@ function renderVelocidadSection(data) {
 }
 
 
-// ==================== EVOLUCIÓN KPIs AVANZADOS (EXECUTIVE VIEW) ====================
+// ==================== SECCIÓN ESTIMACIÓN QA vs REAL ====================
+
+function renderEstimacionQASection(dataArray) {
+    const items = Array.isArray(dataArray) ? dataArray : [dataArray];
+    const validos = items.filter(d => d && d.data && d.data.totalConEstimacion > 0);
+
+    if (validos.length === 0) {
+        return `<div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('estimqa-content')"
+                 style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:flex-start;gap:12px;">
+                <span class="collapse-icon" id="icon-estimqa-content" style="color:#6B7280;font-size:18px;">▼</span>
+                <svg style="width:20px;height:20px;color:#0EA5E9;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                </svg>
+                <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Precisión Estimación QA</h2>
+            </div>
+            <div id="estimqa-content" class="section-content-avanzado" style="padding:20px;color:#6B7280;font-size:13px;">
+                Sin tickets con estimación QA cargada (campo introducido a partir del Sprint 39).
+            </div>
+        </div>`;
+    }
+
+    const sprintsHTML = items.map(({ sprint, data }) => {
+        if (!data || data.totalConEstimacion === 0) {
+            return `<div style="padding:14px 16px;color:#6B7280;font-size:13px;">Sprint ${sprint}: sin estimaciones QA cargadas.</div>`;
+        }
+
+        const desvColor = Math.abs(data.desviacionTotalPct) <= 20 ? '#10B981' : Math.abs(data.desviacionTotalPct) <= 40 ? '#F59E0B' : '#EF4444';
+        const desvSigno = data.desviacionTotalPct > 0 ? '+' : '';
+        const precColor = data.precision >= 70 ? '#10B981' : data.precision >= 50 ? '#F59E0B' : '#EF4444';
+
+        // Tabla de tickets con desviación (todos)
+        const filas = data.tickets.map(t => {
+            const sgn = t.desvPct > 0 ? '+' : '';
+            const color = t.dentroDeRango ? '#10B981' : Math.abs(t.desvPct) <= 50 ? '#F59E0B' : '#EF4444';
+            const bg = t.dentroDeRango ? '#ECFDF5' : Math.abs(t.desvPct) <= 50 ? '#FFFBEB' : '#FEF2F2';
+            const ajusteBadge = '';
+            return `<tr style="border-top:1px solid #F3F4F6;">
+                <td style="padding:8px 10px;font-size:11px;font-weight:600;color:#0369A1;white-space:nowrap;">${t.clave}</td>
+                <td style="padding:8px 10px;font-size:11px;color:#374151;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(t.resumen || '').replace(/"/g, '&quot;')}">${t.resumen || ''}</td>
+                <td style="padding:8px 10px;font-size:11px;color:#6B7280;white-space:nowrap;">${t.asignado || '—'}</td>
+                <td style="padding:8px 8px;text-align:center;font-size:11px;color:#1F2937;font-weight:600;">${t.estimadoH}h</td>
+                <td style="padding:8px 8px;text-align:center;font-size:11px;color:#1F2937;font-weight:600;">${t.realH}h${ajusteBadge}</td>
+                <td style="padding:8px 10px;text-align:center;"><span style="background:${bg};color:${color};padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;">${sgn}${t.desvPct}%</span></td>
+            </tr>`;
+        }).join('');
+
+        const filasSinEst = data.sinEstimacion.slice(0, 10).map(t => `<tr style="border-top:1px solid #F3F4F6;">
+            <td style="padding:6px 10px;font-size:11px;font-weight:600;color:#0369A1;white-space:nowrap;">${t.clave}</td>
+            <td style="padding:6px 10px;font-size:11px;color:#374151;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(t.resumen || '').replace(/"/g, '&quot;')}">${t.resumen || ''}</td>
+            <td style="padding:6px 10px;font-size:11px;color:#6B7280;white-space:nowrap;">${t.asignado || '—'}</td>
+            <td style="padding:6px 8px;text-align:center;font-size:11px;color:#374151;">${t.realH > 0 ? t.realH + 'h' : '—'}</td>
+        </tr>`).join('');
+
+        const chartId = 'estimqa-chart-' + sprint;
+        // Datos para el chart (top 12 por |desv|)
+        const chartData = data.tickets.slice(0, 12).map(t => ({ clave: t.clave, est: t.estimadoH, real: t.realH }));
+
+        return `
+        <div class="subsection" style="margin:16px 16px 0;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;">
+            <div class="collapsible" onclick="toggleSection('estimqa-sprint-${sprint}-content')"
+                 style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;">
+                <span class="collapse-icon" id="icon-estimqa-sprint-${sprint}-content" style="color:#6B7280;font-size:18px;">▼</span>
+                <h3 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Sprint ${sprint}</h3>
+            </div>
+            <div id="estimqa-sprint-${sprint}-content" class="section-content-avanzado" style="padding:16px;">
+                <div style="overflow-x:auto;border:1px solid #E5E7EB;border-radius:8px;">
+                    <table style="width:100%;border-collapse:collapse;">
+                        <thead><tr style="background:#F9FAFB;">
+                            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#FFFFFF;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Clave</th>
+                            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#FFFFFF;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Resumen</th>
+                            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#FFFFFF;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Asignado</th>
+                            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#60A5FA;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Estimado</th>
+                            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#C4B5FD;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Real</th>
+                            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#FCA5A5;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;">Desviación</th>
+                        </tr></thead>
+                        <tbody>${filas}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('estimqa-content')"
+                 style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:flex-start;gap:12px;transition:all 0.3s ease;">
+                <span class="collapse-icon" id="icon-estimqa-content" style="color:#6B7280;font-size:18px;transition:transform 0.3s ease;">▼</span>
+                <svg style="width:20px;height:20px;color:#0EA5E9;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                </svg>
+                <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Precisión Estimación QA</h2>
+            </div>
+            <div id="estimqa-content" class="section-content-avanzado">
+                ${sprintsHTML}
+            </div>
+        </div>`;
+}
+
+// Inicializa los charts ECharts del KPI Estimación QA tras pintar el HTML
+function _initEstimacionQACharts() {
+    if (typeof echarts === 'undefined') return;
+    document.querySelectorAll('[id^="estimqa-chart-"]').forEach(el => {
+        if (!el || el.dataset.initialized === '1') return;
+        const raw = el.getAttribute('data-chart');
+        if (!raw) return;
+        let data;
+        try { data = JSON.parse(raw.replace(/&#39;/g, "'")); } catch (e) { return; }
+        if (!data || data.length === 0) return;
+        const chart = echarts.init(el);
+        chart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: function(p) {
+                const lines = [`<strong>${p[0].axisValue}</strong>`];
+                p.forEach(s => lines.push(`${s.marker} ${s.seriesName}: <strong>${s.value}h</strong>`));
+                return lines.join('<br/>');
+            }},
+            legend: { data: ['Estimado QA', 'Real en In Test'], top: 0, textStyle: { fontSize: 11 } },
+            grid: { left: 60, right: 20, top: 38, bottom: 50 },
+            xAxis: { type: 'category', data: data.map(d => d.clave), axisLabel: { rotate: 35, fontSize: 10, color: '#6B7280' } },
+            yAxis: { type: 'value', name: 'Horas', nameTextStyle: { fontSize: 11, color: '#6B7280' }, axisLabel: { fontSize: 10, color: '#6B7280' } },
+            series: [
+                { name: 'Estimado QA', type: 'bar', data: data.map(d => d.est), itemStyle: { color: '#0EA5E9', borderRadius: [4, 4, 0, 0] } },
+                { name: 'Real en In Test', type: 'bar', data: data.map(d => d.real), itemStyle: { color: '#8B5CF6', borderRadius: [4, 4, 0, 0] } }
+            ]
+        });
+        el.dataset.initialized = '1';
+        window.addEventListener('resize', () => chart.resize());
+    });
+}
+window._initEstimacionQACharts = _initEstimacionQACharts;
+
+
+
 
 let _evolChartInstances = {};
 
 /**
- * Renderiza la sección de evolución histórica de KPIs avanzados (S32→S37)
+ * Renderiza la sección de evolución histórica de KPIs avanzados (S32→S39)
  * Diseñada para presentación ejecutiva/junta directiva
  */
 function renderEvolucionKPIsAvanzados() {
@@ -3861,8 +4386,8 @@ function renderEvolucionKPIsAvanzados() {
     Object.values(_evolChartInstances).forEach(c => { try { c.dispose(); } catch(e) {} });
     Object.keys(_evolChartInstances).forEach(k => delete _evolChartInstances[k]);
 
-    const SPRINTS    = ['32', '33', '34', '35', '36', '37'];
-    const SPRINTS_CL = ['35', '36', '37'];
+    const SPRINTS    = ['32', '33', '34', '35', '36', '37', '38', '39', '40'];
+    const SPRINTS_CL = ['35', '36', '37', '38', '39', '40'];
     const LABELS     = SPRINTS.map(s => 'S' + s);
     const LABELS_CL  = SPRINTS_CL.map(s => 'S' + s);
     const clData     = (typeof changelogData !== 'undefined') ? changelogData : {};
@@ -3871,13 +4396,15 @@ function renderEvolucionKPIsAvanzados() {
 
     // 1. Lead Time
     const leadArr = SPRINTS.map(s => {
-        const r = calcularLeadTime(allTickets, s);
+        const tk = (typeof getTicketsParaSprint === 'function') ? getTicketsParaSprint(allTickets, s) : allTickets;
+        const r = calcularLeadTime(tk, s);
         return { sprint: s, avg: (r && r.total > 0) ? parseFloat(r.promedio) : null, total: r ? r.total : 0 };
     });
 
     // 2. Cycle Time
     const cycleArr = SPRINTS_CL.map(s => {
-        const r = calcularCycleTime(allTickets, [s]);
+        const tk = (typeof getTicketsParaSprint === 'function') ? getTicketsParaSprint(allTickets, s) : allTickets;
+        const r = calcularCycleTime(tk, [s]);
         const dets = r.ticketsDetalle || [];
         const n = Math.max(dets.length, 1);
         const sumOf = key => dets.reduce((acc, t) => acc + (t.etapas[key] || 0), 0);
@@ -3899,7 +4426,8 @@ function renderEvolucionKPIsAvanzados() {
 
     // 3. SLE
     const sleArr = SPRINTS_CL.map(s => {
-        const r = calcularCycleTime(allTickets, [s]);
+        const tk = (typeof getTicketsParaSprint === 'function') ? getTicketsParaSprint(allTickets, s) : allTickets;
+        const r = calcularCycleTime(tk, [s]);
         const sorted = (r.ticketsDetalle || []).map(t => t.diasTotal || 0).filter(d => d > 0).sort((a, b) => a - b);
         const n = sorted.length;
         const pct = p => n === 0 ? null : sorted[Math.max(0, Math.ceil(p / 100 * n) - 1)];
@@ -3908,13 +4436,14 @@ function renderEvolucionKPIsAvanzados() {
 
     // 4. Rework
     const reworkArr = SPRINTS_CL.map(s => {
-        const r = calcularReworkPorSprint(allTickets, s);
+        const tk = (typeof getTicketsParaSprint === 'function') ? getTicketsParaSprint(allTickets, s) : allTickets;
+        const r = calcularReworkPorSprint(tk, s);
         return { sprint: s, pct: parseFloat(r.porcentaje) || 0, con: r.conRework || 0, total: r.totalAnalizado || 0 };
     });
 
     // 5. Críticos
     const criticosArr = SPRINTS.map(s => {
-        const ts = allTickets.filter(t => String(t.sprint) === s);
+        const ts = (typeof getTicketsParaSprint === 'function') ? getTicketsParaSprint(allTickets, s) : allTickets.filter(t => String(t.sprint) === s);
         const criticos = ts.filter(t => { const p = (t.prioridad || '').toLowerCase(); return p === 'highest' || p === 'critical'; });
         const cerrados = criticos.filter(t => t.estadoNormalizado === 'Finalizados');
         return { sprint: s, total: criticos.length, cerrados: cerrados.length, abiertos: criticos.length - cerrados.length };
@@ -3923,8 +4452,8 @@ function renderEvolucionKPIsAvanzados() {
     // 6. Bugs vs Funcionalidad (misma lógica que calcularAnalisisErrores)
     const erroresArr = SPRINTS.map(s => {
         // Filtrar tickets del sprint excluyendo Arrastrado, Por hacer
-        const ts = allTickets.filter(t => {
-            if (String(t.sprint) !== s) return false;
+        const base = (typeof getTicketsParaSprint === 'function') ? getTicketsParaSprint(allTickets, s) : allTickets.filter(t => String(t.sprint) === s);
+        const ts = base.filter(t => {
             const estadoRaw = (t.estado || '').toLowerCase();
             const estadoNorm = (t.estadoNormalizado || '').toLowerCase();
             if (estadoRaw === 'arrastrado') return false;
@@ -3978,7 +4507,18 @@ function renderEvolucionKPIsAvanzados() {
     });
 
     // 7. Carga
-    const cargaArr = SPRINTS.map(s => _calcularCargaPersonaSprint(allTickets, s, clData));
+    const cargaArr = SPRINTS.map(s => {
+        const tk = (typeof getTicketsParaSprint === 'function') ? getTicketsParaSprint(allTickets, s) : allTickets;
+        return _calcularCargaPersonaSprint(tk, s, clData);
+    });
+
+    // 8. Estimación QA vs Real (campo introducido en S39)
+    const SPRINTS_QA = ['39', '40'];
+    const estQAArr = SPRINTS_QA.map(s => {
+        const tk = (typeof getTicketsParaSprint === 'function') ? getTicketsParaSprint(allTickets, s) : allTickets;
+        const r = calcularEstimacionQA(tk, s);
+        return { sprint: s, ...r };
+    });
 
     // ── HELPERS ───────────────────────────────────────────────────────────────
     const ltLast  = leadArr.filter(d => d.avg !== null).slice(-1)[0];
@@ -4023,7 +4563,7 @@ function renderEvolucionKPIsAvanzados() {
             + '<div style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;display:flex;align-items:center;gap:12px;border-left:4px solid ' + accentColor + ';">'
             + icon_svg
             + '<div><div style="font-size:15px;font-weight:600;color:#1F2937;">' + title + '</div>'
-            + '<div style="font-size:12px;color:#6B7280;margin-top:1px;">' + subtitle + '</div></div>'
+            + '</div>'
             + '</div>'
             + '<div style="padding:16px;">' + bodyHtml + '</div>'
             + '</div>';
@@ -4136,12 +4676,12 @@ function renderEvolucionKPIsAvanzados() {
     // ── KPI 01: Lead Time ──────────────────────────────────────────────────────
     const kpi01 = kpiSection('kpi01', icoClock,
         'KPI 01 · Lead Time por Sprint',
-        'Días promedio desde creación hasta resolución · Sprints 32 → 37',
+        'Días promedio desde creación hasta resolución · Sprints 32 → 40',
         '#243F6B',
         '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">'
         + '<div style="display:flex;align-items:baseline;gap:6px;">'
         + '<span style="font-size:36px;font-weight:700;color:#243F6B;line-height:1;">' + (ltLast?.avg?.toFixed(1) ?? '—') + '</span>'
-        + '<span style="font-size:13px;color:#6B7280;">días · Sprint 37</span>'
+        + '<span style="font-size:13px;color:#6B7280;">días · Sprint 39</span>'
         + '</div>'
         + '<div style="display:flex;align-items:center;gap:8px;">'
         + deltaBadge(ltLast?.avg, ltPrev?.avg, true)
@@ -4152,22 +4692,38 @@ function renderEvolucionKPIsAvanzados() {
     );
 
     // ── KPI 02: Cycle Time ────────────────────────────────────────────────────
-    const kpi02 = kpiSection('kpi02', icoFlow,
-        'KPI 02 · Cycle Time · Eficiencia de Flujo',
-        'Días promedio de ciclo y % Flow Efficiency · Sprints 35 → 37 (requiere changelog)',
-        '#4B71A1',
-        '<div id="evol-ch-cycletime" style="width:100%;height:180px;"></div>'
-    );
+    const kpi02tooltipHtml = '<div class="tooltip-umbrales-ct" style="display:none;position:absolute;top:calc(100% + 8px);left:0;background:#1F2937;color:#fff;padding:12px 16px;border-radius:8px;font-size:11px;white-space:nowrap;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.25);">'
+        + '<div style="font-weight:700;margin-bottom:8px;color:#D1D5DB;">Umbrales Cycle Time</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="width:10px;height:10px;background:#10B981;border-radius:50%;"></span> ≤ 5d Bueno</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="width:10px;height:10px;background:#F59E0B;border-radius:50%;"></span> 5d – 10d Atención</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;"><span style="width:10px;height:10px;background:#DC2626;border-radius:50%;"></span> > 10d Crítico</div>'
+        + '<div style="font-weight:700;margin-bottom:8px;color:#D1D5DB;">Umbrales Flow Efficiency</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="width:10px;height:10px;background:#10B981;border-radius:50%;"></span> ≥ 60% Óptimo</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="width:10px;height:10px;background:#F59E0B;border-radius:50%;"></span> 40% – 60% Normal</div>'
+        + '<div style="display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;background:#DC2626;border-radius:50%;"></span> < 40% Crítico</div>'
+        + '<div style="position:absolute;top:-6px;left:16px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:6px solid #1F2937;"></div>'
+        + '</div>';
+    const kpi02 = '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;overflow:visible;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);">'
+        + '<div style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;display:flex;align-items:center;gap:12px;border-left:4px solid #4B71A1;position:relative;cursor:help;" onmouseenter="this.querySelector(\'.tooltip-umbrales-ct\').style.display=\'block\'" onmouseleave="this.querySelector(\'.tooltip-umbrales-ct\').style.display=\'none\'">'
+        + icoFlow
+        + '<div><div style="font-size:15px;font-weight:600;color:#1F2937;">KPI 02 · Cycle Time · Eficiencia de Flujo</div>'
+        + '<div style="font-size:12px;color:#6B7280;margin-top:1px;">Días promedio de ciclo y % Flow Efficiency · Sprints 35 → 39 (requiere changelog)</div></div>'
+        + kpi02tooltipHtml
+        + '</div>'
+        + '<div style="padding:16px;">'
+        + '<div id="evol-ch-cycletime" style="width:100%;height:180px;"></div>'
+        + '</div>'
+        + '</div>';
 
     // ── KPI 04: Rework ────────────────────────────────────────────────────────
     const kpi04 = kpiSection('kpi04', icoRW,
         'KPI 04 · Rework — Reprocesos por Sprint',
-        'Tickets con retrocesos detectados (In Test → Test Issues) · Sprints 35 → 37',
+        'Tickets con retrocesos detectados (In Test → Test Issues) · Sprints 35 → 39',
         '#DC2626',
         '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">'
         + '<div style="display:flex;align-items:baseline;gap:6px;">'
         + '<span style="font-size:36px;font-weight:700;color:#DC2626;line-height:1;">' + (rwLast?.pct?.toFixed(1) ?? '—') + '</span>'
-        + '<span style="font-size:13px;color:#6B7280;">% · ' + (rwLast?.con ?? 0) + ' de ' + (rwLast?.total ?? 0) + ' tickets · Sprint 37</span>'
+        + '<span style="font-size:13px;color:#6B7280;">% · ' + (rwLast?.con ?? 0) + ' de ' + (rwLast?.total ?? 0) + ' tickets · Sprint 39</span>'
         + '</div>'
         + '<div style="display:flex;align-items:center;gap:8px;">'
         + deltaBadge(rwLast?.pct, rwPrev?.pct, true)
@@ -4189,11 +4745,11 @@ function renderEvolucionKPIsAvanzados() {
     // ── KPI 06: Bugs vs Func ──────────────────────────────────────────────────
     const kpi06 = kpiSection('kpi06', icoBug,
         'KPI 06 · Esfuerzo en Bugs vs Funcionalidad por Sprint',
-        'Proporción de Story Points dedicados a corrección de errores · Sprints 32 → 37',
+        'Proporción de Story Points dedicados a corrección de errores · Sprints 32 → 40',
         '#DC2626',
         '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">'
         + '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">'
-        + '<div><span style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">% Esfuerzo Bugs S37</span><br>'
+        + '<div><span style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">% Esfuerzo Bugs S38</span><br>'
         + '<span style="font-size:36px;font-weight:700;color:' + ((errLast?.pctSpBugs || 0) <= 30 ? '#10B981' : (errLast?.pctSpBugs || 0) <= 50 ? '#D97706' : '#DC2626') + ';line-height:1.1;">' + (errLast?.pctSpBugs?.toFixed?.(1) ?? errLast?.pctSpBugs ?? '—') + '%</span>'
         + '</div>'
         + '<div style="width:1px;height:36px;background:#E5E7EB;"></div>'
@@ -4217,6 +4773,40 @@ function renderEvolucionKPIsAvanzados() {
         + '</div>'
         + '<div id="evol-ch-errores" style="width:100%;height:200px;"></div>'
     );
+
+    // ── KPI 08: Estimación QA vs Real ─────────────────────────────────────────
+    // Agregado por sprint: total estimado vs total real (todos los sprints con datos)
+    const qaSeries = estQAArr
+        .filter(d => d && d.totalConEstimacion > 0)
+        .map(d => ({
+            sprint: d.sprint,
+            est: d.sumaEstimado,
+            real: d.sumaReal,
+            desvPct: d.desviacionTotalPct,
+            tickets: d.totalConEstimacion,
+            precision: d.precision
+        }));
+    const qaLast = qaSeries.slice(-1)[0];
+    const qaPrev = qaSeries.slice(-2, -1)[0];
+    const qaIcon = '<svg style="width:22px;height:22px;color:#0EA5E9;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>';
+
+    let kpi08 = '';
+    if (qaLast) {
+        const desvColor = Math.abs(qaLast.desvPct) <= 20 ? '#10B981' : Math.abs(qaLast.desvPct) <= 40 ? '#F59E0B' : '#EF4444';
+        const desvSign = qaLast.desvPct > 0 ? '+' : '';
+        kpi08 = kpiSection('kpi08', qaIcon,
+            'KPI 08 · Precisión Estimación QA',
+            'Total estimado vs real (horas en In Test, laborales L-V 8-17h) — comparativa por sprint',
+            '#0EA5E9',
+            '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">'
+            + miniStat('Estimado S' + qaLast.sprint, qaLast.est, 'h', '#243F6B')
+            + miniStat('Real S' + qaLast.sprint, qaLast.real, 'h', '#4B71A1')
+            + miniStat('Desviación S' + qaLast.sprint, desvSign + qaLast.desvPct, '%', desvColor)
+            + miniStat('Tickets evaluados', qaLast.tickets, '', '#6B7280')
+            + '</div>'
+            + '<div id="evol-ch-estqa" data-chart-qa=\'' + JSON.stringify(qaSeries).replace(/'/g, '&#39;') + '\' style="width:100%;height:280px;"></div>'
+        );
+    }
 
     // ── KPI 07: Carga por Miembro ─────────────────────────────────────────────
     const kpi07 = '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);">'
@@ -4242,7 +4832,7 @@ function renderEvolucionKPIsAvanzados() {
         + 'Críticos = prioridad "Highest" en Jira.'
         + '</div>';
 
-    container.innerHTML = kpi01 + kpi02 + kpi04 + kpi06 + kpi07 + nota;
+    container.innerHTML = kpi01 + kpi02 + kpi04 + kpi06 + kpi07 + kpi08 + nota;
 
     // Tab handler carga
     window._evCargaTab = function(s) {
@@ -4262,7 +4852,99 @@ function renderEvolucionKPIsAvanzados() {
         _initCycleTimeEvolChart('evol-ch-cycletime', LABELS_CL, cycleArr);
         _initReworkEvolChart('evol-ch-rework', LABELS_CL, reworkArr);
         _initBugsEvolChart('evol-ch-errores',   LABELS,   erroresArr);
+        _initEstimQAEvolChart('evol-ch-estqa');
     });
+}
+
+/**
+ * Chart de Estimación QA vs Real (KPI 08) — totales por sprint con desviación.
+ */
+function _initEstimQAEvolChart(id) {
+    const el = document.getElementById(id);
+    if (!el || typeof echarts === 'undefined') return;
+    const raw = el.getAttribute('data-chart-qa');
+    if (!raw) return;
+    let data;
+    try { data = JSON.parse(raw.replace(/&#39;/g, "'")); } catch (e) { return; }
+    if (!data || data.length === 0) {
+        el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9CA3AF;font-size:12px;">Sin datos de estimación QA.</div>';
+        return;
+    }
+    if (_evolChartInstances[id]) { try { _evolChartInstances[id].dispose(); } catch (e) {} }
+    const chart = echarts.init(el, null, { renderer: 'canvas' });
+    _evolChartInstances[id] = chart;
+    chart.setOption({
+        tooltip: {
+            trigger: 'axis', axisPointer: { type: 'shadow' },
+            backgroundColor: '#FFFFFF', borderColor: '#E5E7EB', borderWidth: 1,
+            padding: [10, 14], extraCssText: 'box-shadow:0 4px 12px rgba(0,0,0,.12);border-radius:8px;',
+            formatter: function(params) {
+                const idx = params[0].dataIndex;
+                const d = data[idx];
+                const desvCol = Math.abs(d.desvPct) <= 20 ? '#10B981' : Math.abs(d.desvPct) <= 40 ? '#F59E0B' : '#EF4444';
+                const sign = d.desvPct > 0 ? '+' : '';
+                return '<div style="min-width:200px;">'
+                    + '<div style="font-weight:700;color:#1F2937;margin-bottom:8px;">Sprint ' + d.sprint + '</div>'
+                    + '<div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px;"><span style="color:#6B7280;">Estimado total</span><strong style="color:#243F6B;">' + d.est + 'h</strong></div>'
+                    + '<div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px;"><span style="color:#6B7280;">Real en In Test</span><strong style="color:#4B71A1;">' + d.real + 'h</strong></div>'
+                    + '<div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px;"><span style="color:#6B7280;">Desviación</span><strong style="color:' + desvCol + ';">' + sign + d.desvPct + '%</strong></div>'
+                    + '<div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px;"><span style="color:#6B7280;">Tickets con estimación</span><strong style="color:#1F2937;">' + d.tickets + '</strong></div>'
+                    + '<div style="display:flex;justify-content:space-between;font-size:12px;"><span style="color:#6B7280;">Precisión (±20%)</span><strong style="color:#1F2937;">' + d.precision + '%</strong></div>'
+                    + '</div>';
+            }
+        },
+        legend: {
+            data: ['Estimado QA', 'Real en In Test', 'Desviación %'],
+            top: 0, textStyle: { fontSize: 11, color: '#374151' }
+        },
+        grid: { left: 56, right: 56, top: 36, bottom: 36 },
+        xAxis: {
+            type: 'category',
+            data: data.map(d => 'S' + d.sprint),
+            axisLabel: { fontSize: 12, color: '#374151', fontWeight: 600 },
+            axisLine: { lineStyle: { color: '#E5E7EB' } }
+        },
+        yAxis: [
+            {
+                type: 'value', name: 'Horas',
+                nameTextStyle: { fontSize: 11, color: '#6B7280' },
+                axisLabel: { fontSize: 10, color: '#6B7280', formatter: '{value}h' },
+                splitLine: { lineStyle: { color: '#F3F4F6' } }
+            },
+            {
+                type: 'value', name: 'Desviación %',
+                nameTextStyle: { fontSize: 11, color: '#6B7280' },
+                axisLabel: { fontSize: 10, color: '#6B7280', formatter: '{value}%' },
+                splitLine: { show: false }
+            }
+        ],
+        series: [
+            {
+                name: 'Estimado QA', type: 'bar', yAxisIndex: 0,
+                data: data.map(d => d.est),
+                itemStyle: { color: '#243F6B', borderRadius: [4, 4, 0, 0] },
+                barMaxWidth: 50,
+                label: { show: true, position: 'top', fontSize: 10, color: '#243F6B', formatter: '{c}h' }
+            },
+            {
+                name: 'Real en In Test', type: 'bar', yAxisIndex: 0,
+                data: data.map(d => d.real),
+                itemStyle: { color: '#4B71A1', borderRadius: [4, 4, 0, 0] },
+                barMaxWidth: 50,
+                label: { show: true, position: 'top', fontSize: 10, color: '#4B71A1', formatter: '{c}h' }
+            },
+            {
+                name: 'Desviación %', type: 'line', yAxisIndex: 1,
+                data: data.map(d => d.desvPct),
+                smooth: true,
+                lineStyle: { color: '#EF4444', width: 2 },
+                itemStyle: { color: '#EF4444' },
+                symbol: 'circle', symbolSize: 8,
+                label: { show: true, position: 'top', fontSize: 10, color: '#EF4444', formatter: function(p) { return (p.value > 0 ? '+' : '') + p.value + '%'; } }
+            }
+        ]
+    });
+    window.addEventListener('resize', () => chart.resize());
 }
 
 // ─── Chart helpers — tema consistente con el módulo ───────────────────────────
@@ -4434,10 +5116,10 @@ function _initEvolLineChart(id, labels, data, color, unit, lowerIsBetter, goodTh
             type: 'value',
             name: unit,
             nameTextStyle: { color: '#9CA3AF', fontSize: 11, fontWeight: 600, padding: [0, 28, 0, 0] },
-            min: Math.max(0, minV - pad), max: maxV + pad,
+            min: 0, max: Math.round(maxV + pad),
             splitLine: { lineStyle: { color: '#F3F4F6', type: 'dashed' } },
             axisLine: { show: false }, axisTick: { show: false },
-            axisLabel: { fontSize: 10, color: '#9CA3AF', formatter: '{value}' }
+            axisLabel: { fontSize: 10, color: '#9CA3AF', formatter: v => Math.round(v) }
         },
         series: [{
             type: 'line',
@@ -4498,8 +5180,24 @@ function _initCycleTimeEvolChart(id, labels, data) {
     const chart = echarts.init(dom, null, { renderer: 'canvas' });
     _evolChartInstances[id] = chart;
 
-    // Helper: format time
-    const fmt = v => (v != null && v > 0) ? (v < 0.5 ? Math.round(v * 24) + 'h' : v.toFixed(1) + 'd') : '—';
+    // Format time: 1 day = 9 working hours (same as formatTimeCT in renderCycleTimeSection)
+    const MINS_DIA = 9 * 60;
+    const fmt = v => {
+        if (v == null || v <= 0) return '—';
+        const totalMins = Math.round(v * MINS_DIA);
+        if (totalMins <= 0) return '0h';
+        const halfHours = Math.ceil(totalMins / 30);
+        const totalHoras = halfHours * 0.5;
+        if (totalHoras < 9) {
+            const h = Number.isInteger(totalHoras) ? String(totalHoras) : totalHoras.toFixed(1);
+            return h + 'h';
+        }
+        const diasEnteros = Math.floor(totalHoras / 9);
+        const horasRestantes = totalHoras - diasEnteros * 9;
+        if (horasRestantes === 0) return diasEnteros + 'd';
+        const hr = Number.isInteger(horasRestantes) ? String(horasRestantes) : horasRestantes.toFixed(1);
+        return diasEnteros + 'd ' + hr + 'h';
+    };
 
     // Stages definition (left to right in stack)
     const STAGES = [
@@ -4511,45 +5209,29 @@ function _initCycleTimeEvolChart(id, labels, data) {
         { key: 'testIssue',  name: 'Test Issue',  color: '#F59E0B' }
     ];
 
-    // Build series for each stage (horizontal bars)
+    // Normalizar contra la suma real de etapas para que siempre sumen exactamente 100%
+    const stagesSum = d => STAGES.reduce((s, st) => s + (d.stages[st.key] || 0), 0);
+    const pct = (d, key) => {
+        const total = stagesSum(d);
+        return total > 0 ? parseFloat(((d.stages[key] || 0) / total * 100).toFixed(2)) : 0;
+    };
+
+    // Build series for each stage (stacked, normalized to 100%)
     const series = STAGES.map((st, idx) => ({
         name: st.name,
         type: 'bar',
         stack: 'cycle',
-        barWidth: 28,
-        itemStyle: { 
+        barCategoryGap: '45%',
+        itemStyle: {
             color: st.color,
+            borderColor: '#FFFFFF',
+            borderWidth: 2,
+            borderType: 'solid',
             borderRadius: idx === STAGES.length - 1 ? [0, 4, 4, 0] : 0
         },
         emphasis: { itemStyle: { opacity: 0.85 } },
-        data: data.map(d => d.stages[st.key] || 0)
+        data: data.map(d => pct(d, st.key))
     }));
-
-    // Add invisible series for right-side labels (Ciclo + Flow Eff + badge)
-    series.push({
-        name: '_label',
-        type: 'bar',
-        stack: 'cycle',
-        barWidth: 28,
-        itemStyle: { color: 'transparent' },
-        label: {
-            show: true,
-            position: 'right',
-            distance: 12,
-            formatter: (p) => {
-                const d = data[p.dataIndex];
-                const effCol = d.flowEff >= 60 ? '#059669' : d.flowEff >= 40 ? '#D97706' : '#DC2626';
-                const badge = d.flowEff >= 60 ? '●' : d.flowEff >= 40 ? '○' : '○';
-                return '{total|' + d.avg.toFixed(1) + 'd}  {eff|' + d.flowEff + '%} {badge|' + badge + '}';
-            },
-            rich: {
-                total: { fontSize: 14, fontWeight: 700, color: '#1F2937' },
-                eff: { fontSize: 13, fontWeight: 600, color: '#6B7280' },
-                badge: { fontSize: 10, color: '#059669' }
-            }
-        },
-        data: data.map(() => 0)
-    });
 
     chart.setOption({
         backgroundColor: 'transparent',
@@ -4570,17 +5252,18 @@ function _initCycleTimeEvolChart(id, labels, data) {
                 const effCol = d.flowEff >= 60 ? '#059669' : d.flowEff >= 40 ? '#D97706' : '#DC2626';
                 let h = '<div style="font-weight:700;font-size:13px;color:#1F2937;margin-bottom:8px;">' + labels[idx] + '</div>';
                 h += '<div style="display:flex;gap:16px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #E5E7EB;">';
-                h += '<div><span style="font-size:10px;color:#6B7280;">Ciclo</span><br><strong style="font-size:16px;color:#243F6B;">' + d.avg.toFixed(1) + 'd</strong></div>';
+                h += '<div><span style="font-size:10px;color:#6B7280;">Ciclo promedio</span><br><strong style="font-size:16px;color:#243F6B;">' + fmt(d.avg) + '</strong></div>';
                 h += '<div><span style="font-size:10px;color:#6B7280;">Flow Eff.</span><br><strong style="font-size:16px;color:' + effCol + ';">' + d.flowEff + '%</strong></div>';
                 h += '<div><span style="font-size:10px;color:#6B7280;">Tickets</span><br><strong style="font-size:16px;color:#374151;">' + d.total + '</strong></div>';
                 h += '</div>';
+                // Show real time + % of cycle for each stage
                 params.filter(p => p.seriesName !== '_label' && p.value > 0).forEach(p => {
-                    const pct = d.avg > 0 ? Math.round((p.value / d.avg) * 100) : 0;
+                    const stageDays = d.avg > 0 ? (p.value / 100) * d.avg : 0;
                     h += '<div style="display:flex;align-items:center;gap:6px;margin:4px 0;">';
                     h += '<span style="width:10px;height:10px;border-radius:2px;background:' + p.color + ';"></span>';
                     h += '<span style="flex:1;">' + p.seriesName + '</span>';
-                    h += '<strong>' + fmt(p.value) + '</strong>';
-                    h += '<span style="color:#9CA3AF;font-size:11px;">' + pct + '%</span>';
+                    h += '<strong>' + fmt(stageDays) + '</strong>';
+                    h += '<span style="color:#9CA3AF;font-size:11px;">' + Math.round(p.value) + '%</span>';
                     h += '</div>';
                 });
                 return h;
@@ -4595,7 +5278,7 @@ function _initCycleTimeEvolChart(id, labels, data) {
             itemGap: 16,
             data: STAGES.map(s => s.name)
         },
-        grid: { left: 50, right: 120, top: 16, bottom: 50, containLabel: false },
+        grid: { left: 50, right: 130, top: 16, bottom: 50, containLabel: false },
         yAxis: {
             type: 'category',
             data: labels,
@@ -4606,18 +5289,49 @@ function _initCycleTimeEvolChart(id, labels, data) {
         },
         xAxis: {
             type: 'value',
-            name: 'días',
-            nameLocation: 'end',
-            nameTextStyle: { color: '#9CA3AF', fontSize: 10 },
+            min: 0,
+            max: 100,
             splitLine: { lineStyle: { color: '#F3F4F6', type: 'dashed' } },
             axisLine: { show: false },
             axisTick: { show: false },
-            axisLabel: { fontSize: 10, color: '#9CA3AF', formatter: '{value}' }
+            axisLabel: { show: false }
         },
         series
     });
 
-    window.addEventListener('resize', () => { try { chart.resize(); } catch(e) {} });
+    // Render flow efficiency labels as graphic elements so they always show,
+    // even when the stacked bars sum exactly to 100% (avoiding axis-clip issues).
+    const _renderEffLabels = () => {
+        try {
+            const graphicItems = data.map((d, i) => {
+                const x = chart.convertToPixel({ xAxisIndex: 0 }, 100) + 12;
+                const y = chart.convertToPixel({ yAxisIndex: 0 }, labels[i]);
+                const badge = d.flowEff >= 60 ? '●' : '○';
+                return {
+                    type: 'text',
+                    x: x,
+                    y: y,
+                    style: {
+                        text: d.flowEff + '%  ' + badge,
+                        fontSize: 14,
+                        fontWeight: 'bold',
+                        fill: '#374151',
+                        textAlign: 'left',
+                        textVerticalAlign: 'middle'
+                    },
+                    silent: true,
+                    z: 100
+                };
+            });
+            chart.setOption({ graphic: graphicItems });
+        } catch (e) {}
+    };
+    chart.on('finished', _renderEffLabels);
+
+    window.addEventListener('resize', () => {
+        try { chart.resize(); } catch(e) {}
+        _renderEffLabels();
+    });
 }
 
 /**
@@ -4904,6 +5618,327 @@ window.cerrarModalTickets = cerrarModalTickets;
 window.mostrarDetalleTicket = mostrarDetalleTicket;
 window.cerrarDetalleTicket = cerrarDetalleTicket;
 window.mostrarTicketsPorTipo = mostrarTicketsPorTipo;
+
+// ============================================================================
+// KPI 09 · CUELLOS DE BOTELLA EN TICKETS ARRASTRADOS
+// Mide, para cada ticket que pasó del sprint N al N+1, en qué estado estaba al
+// cierre del sprint y cuántos días hábiles llevaba en ese estado. Permite ver
+// si los arrastrados "se nos ganaron" (mucho tiempo en CR/QA/etc.) o entraron
+// a última hora.
+// ============================================================================
+
+// Fechas de cierre de cada sprint (último segundo del último día laboral)
+const SPRINT_END_DATES_CB = {
+    '35': new Date(2026, 2, 1, 23, 59, 59),   // 01/Mar/2026
+    '36': new Date(2026, 2, 15, 23, 59, 59),  // 15/Mar/2026
+    '37': new Date(2026, 2, 28, 23, 59, 59),  // 28/Mar/2026
+    '38': new Date(2026, 3, 12, 23, 59, 59),  // 12/Abr/2026
+    '39': new Date(2026, 3, 26, 23, 59, 59),  // 26/Abr/2026
+    '40': new Date(2026, 4, 10, 23, 59, 59),  // 10/May/2026
+};
+
+// Estados que nos interesa medir (mapa label → regex de match en changelog)
+const ESTADOS_CUELLO_BOTELLA = [
+    { label: 'Code Review', regex: /^code\s*review$/i,  color: '#8B5CF6' },
+    { label: 'In Test Dev', regex: /^in\s*test\s*dev$/i, color: '#3B82F6' },
+    { label: 'In Test',     regex: /^in\s*test$/i,      color: '#10B981' },
+    { label: 'Test Issue',  regex: /^test\s*issue$/i,   color: '#EF4444' },
+];
+
+/**
+ * Calcula días hábiles (L-V, 9h/día) entre dos fechas reutilizando _minutosHabilesQA.
+ */
+function _diasHabilesCB(ini, fin) {
+    if (!ini || !fin || fin <= ini) return 0;
+    const min = (typeof _minutosHabilesQA === 'function') ? _minutosHabilesQA(ini, fin) : 0;
+    return parseFloat((min / (9 * 60)).toFixed(1));
+}
+
+/**
+ * Calcula los cuellos de botella de los tickets arrastrados del sprint N.
+ * Por cada arrastrado busca el tramo del changelog activo al cierre del sprint
+ * y mide cuántos días hábiles llevaba en ese estado.
+ *
+ * @param {Array}  tickets - Lista completa de tickets (con historico).
+ * @param {string} sprintN - Sprint a analizar (ej. '40').
+ * @returns {Object} { sprint, total, detalle[], resumen{}, verdes, ambar, rojo }
+ */
+function calcularCuellosBotellaArrastrados(tickets, sprintN) {
+    const cierre = SPRINT_END_DATES_CB[sprintN];
+    if (!cierre) {
+        return { sprint: sprintN, total: 0, detalle: [], resumen: {}, verdes: 0, ambar: 0, rojo: 0, error: 'Sprint no configurado' };
+    }
+
+    // Estados terminales: si al cierre del sprint el ticket ya estaba en uno de estos,
+    // NO se considera arrastrado real (independientemente del bucket del histórico).
+    const ESTADOS_TERMINALES_CB = /^(finalizado|finalizada|done|hecho|cerrado|cerrada|closed|resuelto|resuelta|resolved|cancelado|cancelada|cancelled|canceled|rechazado|rechazada)$/i;
+
+    // Estados "por hacer" / iniciales: si al cierre del sprint el ticket aún estaba
+    // en uno de estos, no llegó a entrar en flujo y NO cuenta como cuello de botella.
+    const ESTADOS_POR_HACER_CB = /^(to\s*do|por\s*hacer|abierto|abierta|open|backlog|nuevo|nueva|new|pendiente|reopened|reabierto|reabierta)$/i;
+
+    // Helper: estado activo al cierre desde changelog. Si no hay tramo activo,
+    // devolvemos el último estado conocido antes del cierre.
+    const estadoAlCierre = (clave) => {
+        const tr = (typeof changelogData !== 'undefined' && changelogData[clave]) ? changelogData[clave] : [];
+        let activo = null;
+        let ultimoAntes = null;
+        tr.forEach(x => {
+            const ini = _parseFechaCLQA(x.inicio);
+            if (!ini || ini > cierre) return;
+            const finStr = String(x.fin || '').trim();
+            const fin = (finStr === 'En curso' || !finStr) ? null : _parseFechaCLQA(finStr);
+            if (fin === null || fin > cierre) {
+                activo = x; // tramo abierto al cierre
+            }
+            ultimoAntes = x;
+        });
+        return (activo && activo.estado) || (ultimoAntes && ultimoAntes.estado) || null;
+    };
+
+    // Arrastrados = bucket 'En curso' AND estado al cierre NO terminal
+    const arrastrados = tickets.filter(t => {
+        if (!t.historico || !t.historico[sprintN]) return false;
+        if (t.historico[sprintN].bucket !== 'En curso') return false;
+        const tipo = (t.tipoIncidencia || '').toLowerCase();
+        if (tipo.includes('epic') || tipo.includes('spike') || tipo.includes('subtarea')) return false;
+        const est = estadoAlCierre(t.clave);
+        if (est && ESTADOS_TERMINALES_CB.test(String(est).trim())) return false;
+        if (est && ESTADOS_POR_HACER_CB.test(String(est).trim())) return false;
+        return true;
+    });
+
+    const cl = (typeof changelogData !== 'undefined') ? changelogData : {};
+
+    const detalle = arrastrados.map(t => {
+        const historial = cl[t.clave] || [];
+        // Encontrar el tramo activo al cierre del sprint en cada estado de interés.
+        // "Activo al cierre" = inicio ≤ cierre Y (fin === null/En curso O fin > cierre).
+        // Si el ticket pasó por varios tramos del mismo estado, tomamos el último activo al cierre.
+        const dias = {};
+        let cuelloDias = 0;
+        let cuelloLabel = null;
+
+        ESTADOS_CUELLO_BOTELLA.forEach(({ label, regex }) => {
+            let maxDias = 0;
+            historial.forEach(tr => {
+                if (!regex.test(String(tr.estado || '').trim())) return;
+                const ini = _parseFechaCLQA(tr.inicio);
+                if (!ini || ini > cierre) return;
+                const finStr = String(tr.fin || '').trim();
+                const fin = (finStr === 'En curso' || !finStr) ? null : _parseFechaCLQA(finStr);
+                const tramoActivoAlCierre = (fin === null || fin > cierre);
+                if (!tramoActivoAlCierre) return;
+                const d = _diasHabilesCB(ini, cierre);
+                if (d > maxDias) maxDias = d;
+            });
+            dias[label] = maxDias;
+            if (maxDias > 0 && maxDias > cuelloDias) {
+                cuelloDias = maxDias;
+                cuelloLabel = label;
+            }
+        });
+
+        // Veredicto basado en días en el cuello de botella
+        let veredicto, veredictoColor, veredictoBg;
+        if (cuelloDias === 0) {
+            veredicto = 'Otro estado';
+            veredictoColor = '#6B7280';
+            veredictoBg = '#F3F4F6';
+        } else if (cuelloDias <= 1) {
+            veredicto = '✓ Última hora';
+            veredictoColor = '#065F46';
+            veredictoBg = '#D1FAE5';
+        } else if (cuelloDias <= 3) {
+            veredicto = '⚠ Revisar';
+            veredictoColor = '#92400E';
+            veredictoBg = '#FEF3C7';
+        } else {
+            veredicto = '✗ Atascada';
+            veredictoColor = '#991B1B';
+            veredictoBg = '#FEE2E2';
+        }
+
+        return {
+            clave: t.clave,
+            resumen: t.resumen,
+            tipo: t.tipoIncidencia,
+            asignado: t.asignado,
+            estadoFinal: (t.historico[sprintN] && t.historico[sprintN].estado) || '—',
+            estadoAlCierre: estadoAlCierre(t.clave) || '—',
+            dias,
+            cuello: cuelloLabel || '—',
+            cuelloDias,
+            veredicto,
+            veredictoColor,
+            veredictoBg
+        };
+    });
+
+    // Ordenar peor → mejor (cuello con más días arriba)
+    detalle.sort((a, b) => b.cuelloDias - a.cuelloDias);
+
+    // Resumen agregado por estado cuello de botella
+    const resumen = { 'Code Review': 0, 'In Test Dev': 0, 'In Test': 0, 'Test Issue': 0, 'Otro': 0 };
+    detalle.forEach(d => {
+        if (d.cuello && d.cuello !== '—') resumen[d.cuello]++;
+        else resumen['Otro']++;
+    });
+
+    const verdes = detalle.filter(d => d.cuelloDias > 0 && d.cuelloDias <= 1).length;
+    const ambar  = detalle.filter(d => d.cuelloDias > 1 && d.cuelloDias <= 3).length;
+    const rojo   = detalle.filter(d => d.cuelloDias > 3).length;
+    const otros  = detalle.filter(d => d.cuelloDias === 0).length;
+
+    return { sprint: sprintN, cierre, total: arrastrados.length, detalle, resumen, verdes, ambar, rojo, otros };
+}
+
+/**
+ * Renderiza la sección "Cuellos de Botella en Arrastrados" (KPI 09).
+ * Sigue el mismo patrón visual que renderEstimacionQASection.
+ */
+function renderCuellosBotellaSection(dataArray) {
+    const items = Array.isArray(dataArray) ? dataArray : [dataArray];
+    const validos = items.filter(d => d && d.data && d.data.total > 0);
+
+    if (validos.length === 0) {
+        return `<div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('cuellobot-content')"
+                 style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:flex-start;gap:12px;">
+                <span class="collapse-icon" id="icon-cuellobot-content" style="color:#6B7280;font-size:18px;">▼</span>
+                <svg style="width:20px;height:20px;color:#DC2626;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+                <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Cuellos de Botella en Tickets Arrastrados</h2>
+            </div>
+            <div id="cuellobot-content" class="section-content-avanzado" style="padding:20px;color:#6B7280;font-size:13px;">
+                Sin tickets arrastrados en los sprints analizados.
+            </div>
+        </div>`;
+    }
+
+    const sprintsHTML = items.map((item, idx) => {
+        const { sprint, data } = item;
+        if (!data || data.total === 0) {
+            return `<div style="padding:14px 16px;color:#6B7280;font-size:13px;">Sprint ${sprint}: sin arrastrados o sin datos de changelog.</div>`;
+        }
+        // Solo el primer sprint (más reciente) arranca expandido; el resto colapsado
+        const colapsado = idx > 0;
+        const displayInit = colapsado ? 'none' : 'block';
+        const iconInit = colapsado ? '▶' : '▼';
+
+        // Tarjetas de resumen
+        const ministats = `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px;">
+                <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;padding:12px;">
+                    <div style="font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Arrastrados</div>
+                    <div style="font-size:24px;font-weight:700;color:#1F2937;margin-top:4px;">${data.total}</div>
+                </div>
+                <div style="background:#D1FAE5;border:1px solid #A7F3D0;border-radius:8px;padding:12px;">
+                    <div style="font-size:11px;color:#065F46;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">✓ Última hora (≤1d)</div>
+                    <div style="font-size:24px;font-weight:700;color:#065F46;margin-top:4px;">${data.verdes}</div>
+                </div>
+                <div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:8px;padding:12px;">
+                    <div style="font-size:11px;color:#92400E;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">⚠ Revisar (1-3d)</div>
+                    <div style="font-size:24px;font-weight:700;color:#92400E;margin-top:4px;">${data.ambar}</div>
+                </div>
+                <div style="background:#FEE2E2;border:1px solid #FECACA;border-radius:8px;padding:12px;">
+                    <div style="font-size:11px;color:#991B1B;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">✗ Atascadas (>3d)</div>
+                    <div style="font-size:24px;font-weight:700;color:#991B1B;margin-top:4px;">${data.rojo}</div>
+                </div>
+                <div style="background:#F3F4F6;border:1px solid #E5E7EB;border-radius:8px;padding:12px;">
+                    <div style="font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">Otro estado</div>
+                    <div style="font-size:24px;font-weight:700;color:#6B7280;margin-top:4px;">${data.otros}</div>
+                </div>
+            </div>`;
+
+        // Distribución por cuello de botella (chips horizontales)
+        const resumenChips = ESTADOS_CUELLO_BOTELLA.map(({ label, color }) => {
+            const n = data.resumen[label] || 0;
+            return `<div style="display:flex;align-items:center;gap:6px;background:${color}1A;color:${color};padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;">
+                <span style="width:8px;height:8px;background:${color};border-radius:50%;"></span>
+                ${label}: ${n}
+            </div>`;
+        }).join('') +
+        `<div style="display:flex;align-items:center;gap:6px;background:#6B72801A;color:#6B7280;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;">
+            <span style="width:8px;height:8px;background:#6B7280;border-radius:50%;"></span>
+            Otro: ${data.resumen['Otro'] || 0}
+        </div>`;
+
+        const distribHTML = `
+            <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+                <div style="font-size:12px;color:#374151;font-weight:600;margin-bottom:10px;">Distribución por cuello de botella</div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">${resumenChips}</div>
+            </div>`;
+
+        // Tabla detalle
+        const filas = data.detalle.map(t => {
+            const colCR  = t.dias['Code Review']  || 0;
+            const colITD = t.dias['In Test Dev']  || 0;
+            const colIT  = t.dias['In Test']      || 0;
+            const colTI  = t.dias['Test Issue']   || 0;
+            const cellStyle = (v) => v > 3 ? 'background:#FEE2E2;color:#991B1B;font-weight:700;' : v > 1 ? 'background:#FEF3C7;color:#92400E;font-weight:600;' : v > 0 ? 'background:#D1FAE5;color:#065F46;font-weight:600;' : 'color:#9CA3AF;';
+            return `<tr style="border-top:1px solid #F3F4F6;">
+                <td style="padding:8px 10px;font-size:11px;font-weight:600;color:#0369A1;white-space:nowrap;">${t.clave}</td>
+                <td style="padding:8px 10px;font-size:11px;color:#374151;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(t.resumen || '').replace(/"/g, '&quot;')}">${t.resumen || ''}</td>
+                <td style="padding:8px 10px;font-size:11px;color:#6B7280;white-space:nowrap;">${t.asignado || '—'}</td>
+                <td style="padding:8px 8px;text-align:center;font-size:11px;${cellStyle(colCR)}">${colCR > 0 ? colCR + 'd' : '—'}</td>
+                <td style="padding:8px 8px;text-align:center;font-size:11px;${cellStyle(colITD)}">${colITD > 0 ? colITD + 'd' : '—'}</td>
+                <td style="padding:8px 8px;text-align:center;font-size:11px;${cellStyle(colIT)}">${colIT > 0 ? colIT + 'd' : '—'}</td>
+                <td style="padding:8px 8px;text-align:center;font-size:11px;${cellStyle(colTI)}">${colTI > 0 ? colTI + 'd' : '—'}</td>
+                <td style="padding:8px 10px;text-align:center;"><span style="background:${t.veredictoBg};color:${t.veredictoColor};padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;white-space:nowrap;" title="Estado al cierre: ${t.estadoAlCierre}">${t.veredicto === 'Otro estado' ? t.estadoAlCierre : t.veredicto}</span></td>
+            </tr>`;
+        }).join('');
+
+        return `
+        <div class="subsection" style="margin:16px 16px 0;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;">
+            <div class="collapsible" onclick="toggleSection('cuellobot-sprint-${sprint}-content')"
+                 style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;">
+                <span class="collapse-icon" id="icon-cuellobot-sprint-${sprint}-content" style="color:#6B7280;font-size:18px;">${iconInit}</span>
+                <h3 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Sprint ${sprint}</h3>
+                <span style="margin-left:auto;font-size:12px;color:#6B7280;">${data.total} arrastrados · cierre ${data.cierre.getDate().toString().padStart(2,'0')}/${(data.cierre.getMonth()+1).toString().padStart(2,'0')}/${data.cierre.getFullYear()}</span>
+            </div>
+            <div id="cuellobot-sprint-${sprint}-content" class="section-content-avanzado" style="padding:16px;display:${displayInit};">
+                ${ministats}
+                ${distribHTML}
+                <div style="overflow-x:auto;border:1px solid #E5E7EB;border-radius:8px;">
+                    <table style="width:100%;border-collapse:collapse;">
+                        <thead><tr style="background:#F9FAFB;">
+                            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#FFFFFF;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;background:#1F2937;">Clave</th>
+                            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#FFFFFF;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;background:#1F2937;">Resumen</th>
+                            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#FFFFFF;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;background:#1F2937;">Asignado</th>
+                            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#C4B5FD;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;background:#1F2937;">Code Review</th>
+                            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#93C5FD;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;background:#1F2937;">In Test Dev</th>
+                            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#6EE7B7;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;background:#1F2937;">In Test</th>
+                            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#FCA5A5;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;background:#1F2937;">Test Issue</th>
+                            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#FFFFFF;letter-spacing:0.05em;text-transform:uppercase;border-bottom:2px solid #E5E7EB;background:#1F2937;">Veredicto</th>
+                        </tr></thead>
+                        <tbody>${filas}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="kpi-section-avanzado" style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+            <div class="section-header-avanzado collapsible" onclick="toggleSection('cuellobot-content')"
+                 style="background:linear-gradient(to right,#F3F4F6,#E5E7EB);padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:flex-start;gap:12px;transition:all 0.3s ease;">
+                <span class="collapse-icon" id="icon-cuellobot-content" style="color:#6B7280;font-size:18px;transition:transform 0.3s ease;">▼</span>
+                <svg style="width:20px;height:20px;color:#DC2626;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+                <h2 style="margin:0;font-size:16px;font-weight:600;color:#1F2937;">Cuellos de Botella en Tickets Arrastrados</h2>
+                <span style="margin-left:auto;font-size:11px;color:#6B7280;font-weight:500;">Días hábiles en el estado al cierre · ≤1d ✓ · 1-3d ⚠ · >3d ✗</span>
+            </div>
+            <div id="cuellobot-content" class="section-content-avanzado">
+                ${sprintsHTML}
+            </div>
+        </div>`;
+}
+
+window.calcularCuellosBotellaArrastrados = calcularCuellosBotellaArrastrados;
+window.renderCuellosBotellaSection = renderCuellosBotellaSection;
 window.cerrarModalTicketsTipo = cerrarModalTicketsTipo;
 
 console.log('[KPIs Avanzados] Módulo cargado correctamente');

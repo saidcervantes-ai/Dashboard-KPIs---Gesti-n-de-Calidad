@@ -1674,7 +1674,7 @@
         <div class="brand-right">
             <div class="brand-stat">
                 <span class="brand-stat-label">Sprint Actual</span>
-                <span class="brand-stat-value">37</span>
+                <span class="brand-stat-value">41</span>
             </div>
             <div class="brand-stat">
                 <span class="brand-stat-label">Total Actividades en QA</span>
@@ -1707,6 +1707,7 @@
                     <option value="evolucion">▸ Evolución Sprint</option>
                     <option value="resumen">▸ Resumen</option>
                     <option value="incidentes">▸ Actividades</option>
+                    <option value="testrail-audit">▸ Auditoría TestRail</option>
                 </select>
             </div>
         </div>
@@ -1777,7 +1778,10 @@
                     <option value="35">Sprint 35</option>
                     <option value="36">Sprint 36</option>
                     <option value="37">Sprint 37</option>
-                    <option value="38" selected>Sprint 38</option>
+                    <option value="38">Sprint 38</option>
+                    <option value="39">Sprint 39</option>
+                    <option value="40">Sprint 40</option>
+                    <option value="41" selected>Sprint 41</option>
                 </select>
             </div>
         </div>
@@ -1822,11 +1826,10 @@
 
         <!-- ── KPIs AVANZADOS: Evolución Sprint a Sprint ───────────────── -->
         <div style="margin-top:48px;padding-top:40px;border-top:2px solid #E5E7EB;">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+            <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:32px;">
                 <i data-lucide="bar-chart-2" style="display:inline-block;width:22px;height:22px;color:#6C5CE7;vertical-align:middle;"></i>
                 <h3 style="font-size:20px;font-weight:700;color:#1F2937;margin:0;">KPIs Avanzados · Evolución Sprint a Sprint</h3>
             </div>
-            <p style="color:#6B7280;font-size:13px;margin:0 0 28px 0;padding-left:34px;">Lead Time, Velocidad, Rework, Scope Creep, % Bugs y Eficiencia — Sprint 32 → 37</p>
             <div id="evolucion-kpis-avanzados"></div>
         </div>
     </div>
@@ -1850,7 +1853,10 @@
                 <option value="35">Sprint 35</option>
                 <option value="36">Sprint 36</option>
                 <option value="37">Sprint 37</option>
-                <option value="38" selected>Sprint 38</option>
+                <option value="38">Sprint 38</option>
+                <option value="39">Sprint 39</option>
+                <option value="40">Sprint 40</option>
+                <option value="41" selected>Sprint 41</option>
             </select>
         </div>
         
@@ -2002,6 +2008,16 @@
     <!-- TAB: KPIS AVANZADOS -->
     <div id="kpis-avanzados" class="tab-content">
         <div id="kpis-avanzados-content"></div>
+    </div>
+
+    <!-- TAB: AUDITORÍA TESTRAIL (módulo aislado vía iframe para no afectar estilos/lógica existentes) -->
+    <div id="testrail-audit" class="tab-content">
+        <iframe
+            src="auditoria_casos.html"
+            title="Auditoría de Casos de Prueba - TestRail"
+            style="width:100%;height:calc(100vh - 200px);min-height:800px;border:0;border-radius:12px;background:#f0f4f8;box-shadow:0 2px 12px rgba(0,0,0,0.08);"
+            loading="lazy"
+        ></iframe>
     </div>
     
     <!-- TAB: INSTRUCCIONES -->
@@ -2364,12 +2380,12 @@
         </div>
     </div>
     
-    <script src="dashboard_data.js?v=20260323"></script>
+    <script src="dashboard_data.js?v=20260512i"></script>
     <script src="dashboard_data_prd.js?v=20260323"></script>
-    <script src="dashboard_changelog_data.js?v=20260323"></script>
-    <script src="dashboard_logic.js?v=20260323"></script>
-    <script src="dashboard_logic_prd.js?v=20260323"></script>
-    <script src="dashboard_kpis_avanzados.js?v=20260323d"></script>
+    <script src="dashboard_changelog_data.js?v=20260512i"></script>
+    <script src="dashboard_logic.js?v=20260512i"></script>
+    <script src="dashboard_logic_prd.js?v=20260512i"></script>
+    <script src="dashboard_kpis_avanzados.js?v=20260512r"></script>
     
     <script>
         // Inicializar la primera vista de QA al cargar
