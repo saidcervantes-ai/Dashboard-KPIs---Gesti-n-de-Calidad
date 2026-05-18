@@ -3375,28 +3375,40 @@ function _calcularCargaPersonaSprint(tickets, sprint, clData) {
         const tipo = (t.tipoIncidencia || '').toLowerCase();
         const d = personas[p];
         const tkEntry = { c: t.clave, r: (t.resumen || '').slice(0, 80), t: t.tipoIncidencia || '', se: spEst, sr: spReal, e: t.estadoNormalizado || t.estado || '' };
-        // Calcular capacidad comprometida (SP estimado de TODOS los tickets del sprint)
-        d.capacidadComp += spEst;
-        d.tkCompromiso.push(tkEntry);
+        // Solo contar esfuerzo (CC, SP Est., SP Real) para tickets FINALIZADOS en el sprint.
+        // Los tickets "En curso" se contabilizarán en el sprint donde se cierren.
+        const isFinalizado = (t.estadoNormalizado || t.estado || '').toLowerCase() === 'finalizados';
+        if (isFinalizado) {
+            d.capacidadComp += spEst;
+            d.tkCompromiso.push(tkEntry);
+        }
         d.total++;
-        d.spEstimado += spEst;
-        d.spReal     += spReal;
-        d.tkAll.push(tkEntry);
+        if (isFinalizado) {
+            d.spEstimado += spEst;
+            d.spReal     += spReal;
+            d.tkAll.push(tkEntry);
+        }
         if (tipo.includes('error') || tipo.includes('bug')) {
             d.errores++;
-            d.spEstBugs  += spEst;
-            d.spRealBugs += spReal;
-            d.tkBugs.push(tkEntry);
+            if (isFinalizado) {
+                d.spEstBugs  += spEst;
+                d.spRealBugs += spReal;
+                d.tkBugs.push(tkEntry);
+            }
         } else if (tipo.includes('histor')) {
             d.historias++;
-            d.spEstHistorias  += spEst;
-            d.spRealHistorias += spReal;
-            d.tkHistorias.push(tkEntry);
+            if (isFinalizado) {
+                d.spEstHistorias  += spEst;
+                d.spRealHistorias += spReal;
+                d.tkHistorias.push(tkEntry);
+            }
         } else {
             d.tareas++;
-            d.spEstTareas  += spEst;
-            d.spRealTareas += spReal;
-            d.tkTareas.push(tkEntry);
+            if (isFinalizado) {
+                d.spEstTareas  += spEst;
+                d.spRealTareas += spReal;
+                d.tkTareas.push(tkEntry);
+            }
         }
     });
 

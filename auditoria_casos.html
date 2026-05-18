@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auditoría de Casos de Prueba - Invox Medical Suite</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #6C5CE7;
+      --primary-dark: #5244C7;
+      --primary-soft: #EDE9FE;
+      --success: #10B981;
+      --success-soft: #D1FAE5;
+      --success-dark: #047857;
+      --danger: #EF4444;
+      --danger-soft: #FEE2E2;
+      --danger-dark: #B91C1C;
+      --info: #3B82F6;
+      --info-soft: #DBEAFE;
+      --text-primary: #1F2937;
+      --text-secondary: #6B7280;
+      --text-muted: #9CA3AF;
+      --bg: #F3F4F6;
+      --surface: #FFFFFF;
+      --surface-alt: #F9FAFB;
+      --border: #E5E7EB;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+      --shadow-lg: 0 8px 24px rgba(108,92,231,0.12);
+    }
+    body {
+      font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif;
+      background: var(--bg); color: var(--text-primary);
+      padding: 28px 32px; -webkit-font-smoothing: antialiased;
+    }
+    .audit-header {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 28px 32px; margin-bottom: 24px;
+      display: flex; align-items: center; gap: 20px;
+      box-shadow: var(--shadow-sm); position: relative; overflow: hidden;
+    }
+    .audit-header::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+      background: linear-gradient(90deg, var(--primary), var(--success), var(--danger));
+    }
+    .audit-header-icon {
+      width: 56px; height: 56px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 14px rgba(108,92,231,0.35); flex-shrink: 0;
+    }
+    .audit-header-icon i { width: 28px; height: 28px; color: white; stroke-width: 2; }
+    .audit-header h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; margin: 0; }
+    .audit-header p { color: var(--text-secondary); font-size: 13px; margin-top: 4px; font-weight: 500; }
+    .audit-header .source-tag {
+      margin-left: auto; background: var(--surface-alt); border: 1px solid var(--border);
+      padding: 8px 14px; border-radius: 8px; font-size: 11px;
+      color: var(--text-secondary); font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .audit-header .source-tag i { width: 14px; height: 14px; }
+
+    .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px; }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px;
+      display: flex; align-items: center; gap: 16px;
+      box-shadow: var(--shadow-sm);
+      transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+    }
+    .stat-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); border-color: #C4B5FD; }
+    .stat-card .stat-icon {
+      width: 46px; height: 46px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .stat-card .stat-icon i { width: 22px; height: 22px; stroke-width: 2.2; }
+    .stat-card.total .stat-icon { background: var(--primary-soft); }
+    .stat-card.total .stat-icon i { color: var(--primary); }
+    .stat-card.done .stat-icon { background: var(--success-soft); }
+    .stat-card.done .stat-icon i { color: var(--success-dark); }
+    .stat-card.empty .stat-icon { background: var(--danger-soft); }
+    .stat-card.empty .stat-icon i { color: var(--danger-dark); }
+    .stat-card .stat-body { display: flex; flex-direction: column; min-width: 0; }
+    .stat-card .stat-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--text-muted);
+    }
+    .stat-card .stat-num { font-size: 30px; font-weight: 800; line-height: 1.1; margin-top: 2px; letter-spacing: -1px; }
+    .stat-card.done .stat-num { color: var(--success-dark); }
+    .stat-card.empty .stat-num { color: var(--danger-dark); }
+    .stat-card .stat-pct { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-top: 2px; }
+
+    .progress-card {
+      background: linear-gradient(135deg, #6C5CE7 0%, #5244C7 100%);
+      border-radius: 14px; padding: 24px 28px; margin-bottom: 24px;
+      color: white; box-shadow: 0 8px 24px rgba(108,92,231,0.25);
+      display: grid; grid-template-columns: auto 1fr auto; gap: 24px; align-items: center;
+    }
+    .progress-card .pc-icon {
+      width: 56px; height: 56px; border-radius: 14px;
+      background: rgba(255,255,255,0.18);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .progress-card .pc-icon i { width: 28px; height: 28px; color: white; stroke-width: 2; }
+    .progress-card .pc-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; opacity: 0.85; font-weight: 600; }
+    .progress-card .pc-value { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-top: 4px; }
+    .progress-card .pc-sub { font-size: 13px; opacity: 0.9; margin-top: 4px; font-weight: 500; }
+    .progress-card .pc-delta {
+      background: rgba(255,255,255,0.18); padding: 14px 22px; border-radius: 12px;
+      text-align: center; min-width: 130px;
+    }
+    .progress-card .pc-delta-num { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
+    .progress-card .pc-delta-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; opacity: 0.9; }
+
+    .trend-container {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 26px 28px; margin-bottom: 28px;
+      box-shadow: var(--shadow-sm);
+    }
+    .trend-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+    .trend-title { display: flex; align-items: center; gap: 12px; }
+    .trend-title-icon {
+      width: 42px; height: 42px; border-radius: 10px; background: var(--primary-soft);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .trend-title-icon i { width: 22px; height: 22px; color: var(--primary); stroke-width: 2.2; }
+    .trend-title h2 { font-size: 17px; font-weight: 700; margin: 0; }
+    .trend-title p { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .trend-pills { display: flex; gap: 10px; flex-wrap: wrap; }
+    .trend-pill {
+      background: var(--surface-alt); border: 1px solid var(--border);
+      padding: 10px 14px; border-radius: 10px; min-width: 140px;
+    }
+    .trend-pill .tp-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); font-weight: 600; }
+    .trend-pill .tp-val { font-size: 16px; font-weight: 700; margin-top: 2px; }
+    .trend-pill.success { border-left: 3px solid var(--success); }
+    .trend-pill.success .tp-val { color: var(--success-dark); }
+    .trend-pill.info { border-left: 3px solid var(--info); }
+    .trend-pill.info .tp-val { color: var(--info); }
+    .trend-snapshots { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 22px; }
+    .ts-cell {
+      background: var(--surface-alt); border: 1px solid var(--border);
+      padding: 14px; border-radius: 10px; text-align: center;
+      transition: transform .2s ease, border-color .2s ease;
+    }
+    .ts-cell:hover { transform: translateY(-2px); border-color: #C4B5FD; }
+    .ts-cell .ts-date { font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
+    .ts-cell .ts-val { font-size: 22px; font-weight: 800; margin-top: 4px; letter-spacing: -0.5px; }
+    .ts-cell .ts-pct { font-size: 12px; color: var(--text-secondary); margin-top: 2px; font-weight: 500; }
+    .ts-cell.today {
+      background: linear-gradient(135deg, #ECFDF5, #D1FAE5);
+      border: 1px solid var(--success);
+    }
+    .ts-cell.today .ts-date, .ts-cell.today .ts-val { color: var(--success-dark); }
+    .ts-cell.today .ts-pct { color: var(--success); font-weight: 700; }
+
+    .section-title {
+      font-size: 16px; font-weight: 700; margin: 28px 0 14px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .section-title .st-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .section-title .st-icon i { width: 18px; height: 18px; stroke-width: 2.2; }
+    .section-title.done-title .st-icon { background: var(--success-soft); }
+    .section-title.done-title .st-icon i { color: var(--success-dark); }
+    .section-title.empty-title .st-icon { background: var(--danger-soft); }
+    .section-title.empty-title .st-icon i { color: var(--danger-dark); }
+    .section-title .st-count {
+      font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+      background: var(--surface-alt); color: var(--text-secondary); border: 1px solid var(--border);
+    }
+
+    .table-container {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden; margin-bottom: 28px;
+      box-shadow: var(--shadow-sm);
+    }
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: var(--surface-alt); }
+    thead th {
+      padding: 12px 16px; text-align: left; font-size: 11px;
+      letter-spacing: 0.6px; text-transform: uppercase;
+      color: var(--text-muted); font-weight: 700;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr { transition: background .15s ease; }
+    tbody tr:hover { background: #FAFAFE; }
+    tbody td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--border); }
+    tbody tr:last-child td { border-bottom: none; }
+    td.num { color: var(--text-muted); font-size: 12px; width: 48px; text-align: center; font-weight: 600; }
+    td.cid {
+      font-weight: 700; color: var(--primary); white-space: nowrap;
+      font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 12.5px;
+    }
+    td.cid::before {
+      content: ''; display: inline-block; width: 6px; height: 6px;
+      border-radius: 50%; background: var(--primary); margin-right: 8px;
+      vertical-align: middle;
+    }
+    .badge {
+      font-size: 11px; font-weight: 700; padding: 5px 12px;
+      border-radius: 20px; white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .badge-done { background: var(--success-soft); color: var(--success-dark); }
+
+    .group-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; margin-bottom: 14px; overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .group-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px; background: var(--surface-alt);
+      border-bottom: 1px solid var(--border);
+      border-left: 4px solid var(--danger); cursor: pointer;
+    }
+    .group-name { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .group-name i { width: 16px; height: 16px; color: var(--text-muted); transition: transform .2s ease; }
+    .group-card.collapsed .group-name i { transform: rotate(-90deg); }
+    .group-card.collapsed .group-body { display: none; }
+    .group-card.collapsed .group-header { border-bottom: none; }
+    .group-count {
+      background: var(--danger); color: white; padding: 4px 12px;
+      border-radius: 20px; font-size: 12px; font-weight: 700;
+    }
+    .inner-table { width: 100%; border-collapse: collapse; background: var(--surface); }
+    .inner-table thead tr { background: var(--surface-alt); }
+    .inner-table thead th {
+      padding: 10px 14px; font-size: 11px; text-align: left;
+      letter-spacing: 0.6px; text-transform: uppercase;
+      color: var(--text-muted); font-weight: 700;
+      border-bottom: 1px solid var(--border);
+    }
+    .inner-table tbody tr:hover { background: #FAFAFE; }
+    .inner-table tbody td {
+      padding: 10px 14px; font-size: 12.5px;
+      border-bottom: 1px solid var(--border);
+    }
+    .inner-table tbody tr:last-child td { border-bottom: none; }
+
+    .loading, .error-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 40px; text-align: center;
+      color: var(--text-secondary); font-size: 14px; box-shadow: var(--shadow-sm);
+    }
+    .error-box { background: #FEF2F2; border-color: #FECACA; color: var(--danger-dark); text-align: left; }
+    .error-box code {
+      background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    }
+    .spinner {
+      width: 32px; height: 32px; border: 3px solid var(--border);
+      border-top-color: var(--primary); border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin: 0 auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header class="audit-header">
+    <div class="audit-header-icon"><i data-lucide="clipboard-check"></i></div>
+    <div>
+      <h1>Auditoría de Casos de Prueba</h1>
+      <p>Invox Medical Suite · TestRail · Revisión del estado del paso a paso</p>
+    </div>
+    <div class="source-tag">
+      <i data-lucide="file-spreadsheet"></i>
+      <span id="source-info">Cargando CSV…</span>
+    </div>
+  </header>
+
+  <div id="content-root">
+    <div class="loading">
+      <div class="spinner"></div>
+      Leyendo <strong>testrail_invox_medical.csv</strong>…
+    </div>
+  </div>
+
+  <script>
+  // ============================================================
+  // CONFIGURACIÓN — editable
+  // ============================================================
+  // Snapshots históricos. El valor de "hoy" se calcula desde el CSV.
+  const HISTORICAL_SNAPSHOTS = [
+    { label: '18 Mar', done: 80,  total: 371 },
+    { label: '1 Abr',  done: 105, total: 371 },
+    { label: '15 Abr', done: 135, total: 371 },
+    { label: '28 Abr', done: 197, total: 405 }
+  ];
+  const TODAY_LABEL = '12 May (Hoy)';
+  const CSV_PATH = 'testrail_invox_medical.csv';
+
+  // ============================================================
+  // PARSER CSV
+  // ============================================================
+  function parseCSV(input) {
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    for (let i = 0; i < input.length; i++) {
+      const c = input[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (input[i + 1] === '"') { field += '"'; i++; }
+          else { inQuotes = false; }
+        } else { field += c; }
+      } else {
+        if (c === '"') inQuotes = true;
+        else if (c === ',') { row.push(field); field = ''; }
+        else if (c === '\r') { /* skip */ }
+        else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+        else field += c;
+      }
+    }
+    if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  // ============================================================
+  // CLASIFICACIÓN
+  // ============================================================
+  function classifyCases(rows) {
+    // Header esperado: ID, Title, Is Automated, Steps, Steps, Steps (Step), Template, is_converted
+    const ID = 0, TITLE = 1, STEPS = 3;
+    const con = [], sin = [];
+    for (let r = 1; r < rows.length; r++) {
+      const cols = rows[r];
+      if (!cols || cols.length < 4) continue;
+      const id = (cols[ID] || '').trim();
+      if (!id) continue;
+      const title = (cols[TITLE] || '').trim();
+      const stepsHtml = (cols[STEPS] || '').trim();
+      const plain = stepsHtml.replace(/<[^>]+>/g, '').replace(/&nbsp;/gi, ' ').trim();
+      if (plain.length === 0) sin.push({ id, title });
+      else con.push({ id, title });
+    }
+    return { con, sin };
+  }
+
+  function groupByModule(cases) {
+    const groups = {};
+    for (const c of cases) {
+      const m = c.title.match(/^TC-([A-Z0-9]+)-/i);
+      const key = m ? m[1].toUpperCase() : 'OTROS';
+      (groups[key] = groups[key] || []).push(c);
+    }
+    return Object.entries(groups)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([module, items]) => ({ module, items }));
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, ch =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])
+    );
+  }
+
+  // ============================================================
+  // RENDER
+  // ============================================================
+  function render(con, sin) {
+    const total = con.length + sin.length;
+    const pctDone = total ? (con.length / total * 100) : 0;
+    const pctEmpty = total ? (sin.length / total * 100) : 0;
+
+    const lastSnap = HISTORICAL_SNAPSHOTS[HISTORICAL_SNAPSHOTS.length - 1];
+    const lastTotal = lastSnap.total || total;
+    const lastPct = lastTotal ? (lastSnap.done / lastTotal * 100) : 0;
+    const deltaCases = con.length - lastSnap.done;
+    const deltaPct = pctDone - lastPct;
+
+    const allSnapshots = [
+      ...HISTORICAL_SNAPSHOTS,
+      { label: TODAY_LABEL, done: con.length, total, today: true }
+    ];
+
+    const growthTotal = con.length - HISTORICAL_SNAPSHOTS[0].done;
+    const avgGrowth = HISTORICAL_SNAPSHOTS.length > 0
+      ? Math.round(growthTotal / HISTORICAL_SNAPSHOTS.length) : 0;
+
+    document.getElementById('source-info').textContent = `${total} casos · CSV cargado`;
+
+    const root = document.getElementById('content-root');
+    root.innerHTML = `
+      <div class="stats-bar">
+        <div class="stat-card total">
+          <div class="stat-icon"><i data-lucide="layers"></i></div>
+          <div class="stat-body">
+            <span class="stat-label">Total de casos</span>
+            <span class="stat-num">${total}</span>
+          </div>
+        </div>
+        <div class="stat-card done">
+          <div class="stat-icon"><i data-lucide="check-circle-2"></i></div>
+          <div class="stat-body">
+            <span class="stat-label">Con paso a paso</span>
+            <span class="stat-num">${con.length}</span>
+            <span class="stat-pct">${pctDone.toFixed(1)}% del total</span>
+          </div>
+        </div>
+        <div class="stat-card empty">
+          <div class="stat-icon"><i data-lucide="alert-circle"></i></div>
+          <div class="stat-body">
+            <span class="stat-label">Sin paso a paso</span>
+            <span class="stat-num">${sin.length}</span>
+            <span class="stat-pct">${pctEmpty.toFixed(1)}% del total</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="progress-card">
+        <div class="pc-icon"><i data-lucide="trending-up"></i></div>
+        <div>
+          <div class="pc-label">Progreso desde el último reporte (${escapeHtml(lastSnap.label)})</div>
+          <div class="pc-value">${lastPct.toFixed(1)}% → ${pctDone.toFixed(1)}%</div>
+          <div class="pc-sub">${deltaPct >= 0 ? 'Incremento' : 'Decremento'} de ${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)} puntos porcentuales en cobertura</div>
+        </div>
+        <div class="pc-delta">
+          <div class="pc-delta-num">${deltaCases >= 0 ? '+' : ''}${deltaCases}</div>
+          <div class="pc-delta-lbl">Casos ${deltaCases >= 0 ? 'nuevos' : 'menos'}</div>
+        </div>
+      </div>
+
+      <div class="trend-container">
+        <div class="trend-head">
+          <div class="trend-title">
+            <div class="trend-title-icon"><i data-lucide="line-chart"></i></div>
+            <div>
+              <h2>Tendencia de Avance</h2>
+              <p>Evolución de casos con paso a paso completado en los últimos avances</p>
+            </div>
+          </div>
+          <div class="trend-pills">
+            <div class="trend-pill info">
+              <div class="tp-lbl">Promedio / avance</div>
+              <div class="tp-val">${avgGrowth >= 0 ? '+' : ''}${avgGrowth} casos</div>
+            </div>
+          </div>
+        </div>
+        <div style="position: relative; height: 360px;">
+          <canvas id="trendChart"></canvas>
+        </div>
+        <div class="trend-snapshots">
+          ${allSnapshots.map(s => {
+            const t = s.total || total;
+            const pct = t ? (s.done / t * 100).toFixed(1) : '0.0';
+            return `
+              <div class="ts-cell ${s.today ? 'today' : ''}">
+                <div class="ts-date">${escapeHtml(s.label)}</div>
+                <div class="ts-val">${s.done}</div>
+                <div class="ts-pct">${pct}%</div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <h2 class="section-title done-title">
+        <span class="st-icon"><i data-lucide="check-circle-2"></i></span>
+        Con paso a paso
+        <span class="st-count">${con.length} casos</span>
+      </h2>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>#</th><th>ID</th><th>Título</th><th>Estado</th></tr></thead>
+          <tbody>
+            ${con.map((c, i) => `
+              <tr>
+                <td class="num">${i + 1}</td>
+                <td class="cid">${escapeHtml(c.id)}</td>
+                <td>${escapeHtml(c.title)}</td>
+                <td><span class="badge badge-done">✓ Completo</span></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <h2 class="section-title empty-title">
+        <span class="st-icon"><i data-lucide="alert-circle"></i></span>
+        Sin paso a paso
+        <span class="st-count">${sin.length} casos · agrupados por módulo</span>
+      </h2>
+      ${groupByModule(sin).map(g => `
+        <div class="group-card">
+          <div class="group-header" onclick="this.parentElement.classList.toggle('collapsed')">
+            <span class="group-name">
+              <i data-lucide="chevron-down"></i>
+              Módulo ${escapeHtml(g.module)}
+            </span>
+            <span class="group-count">${g.items.length} casos</span>
+          </div>
+          <div class="group-body">
+            <table class="inner-table">
+              <thead><tr><th>#</th><th>ID</th><th>Título</th></tr></thead>
+              <tbody>
+                ${g.items.map((c, i) => `
+                  <tr>
+                    <td class="num">${i + 1}</td>
+                    <td class="cid">${escapeHtml(c.id)}</td>
+                    <td>${escapeHtml(c.title)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`).join('')}
+    `;
+
+    if (window.lucide && typeof lucide.createIcons === 'function') lucide.createIcons();
+    renderChart(allSnapshots, total);
+  }
+
+  function renderChart(snapshots, totalToday) {
+    const ctx = document.getElementById('trendChart').getContext('2d');
+    const gradientDone = ctx.createLinearGradient(0, 0, 0, 360);
+    gradientDone.addColorStop(0, 'rgba(16, 185, 129, 0.30)');
+    gradientDone.addColorStop(1, 'rgba(16, 185, 129, 0.02)');
+
+    const labels = snapshots.map(s => s.label);
+    const doneData = snapshots.map(s => s.done);
+    const totalData = snapshots.map(s => s.total || totalToday);
+
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Casos con paso a paso',
+            data: doneData,
+            borderColor: '#10B981',
+            backgroundColor: gradientDone,
+            borderWidth: 3, tension: 0.35, fill: true,
+            pointBackgroundColor: '#10B981', pointBorderColor: '#fff',
+            pointBorderWidth: 2, pointRadius: 6, pointHoverRadius: 9
+          },
+          {
+            label: 'Total de casos',
+            data: totalData,
+            borderColor: '#6C5CE7',
+            backgroundColor: 'transparent',
+            borderWidth: 2, borderDash: [2, 4],
+            tension: 0, fill: false,
+            pointBackgroundColor: '#6C5CE7', pointBorderColor: '#fff',
+            pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 7
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            position: 'top', align: 'end',
+            labels: {
+              usePointStyle: true, padding: 18,
+              font: { family: 'Inter', size: 12, weight: '600' },
+              color: '#1F2937'
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(31,41,55,0.95)', titleColor: '#fff',
+            titleFont: { size: 13, weight: '700' },
+            bodyColor: '#fff', bodyFont: { size: 12 },
+            padding: 12, cornerRadius: 8, displayColors: true,
+            callbacks: {
+              label: function (ctx) {
+                const value = ctx.parsed.y;
+                const total = totalData[ctx.dataIndex] || totalToday;
+                const pct = ((value / total) * 100).toFixed(1);
+                return `${ctx.dataset.label}: ${value} (${pct}%)`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: '#6B7280', font: { family: 'Inter', size: 12, weight: '600' } } },
+          y: {
+            beginAtZero: true,
+            suggestedMax: Math.ceil((Math.max(...totalData) * 1.1) / 50) * 50,
+            grid: { color: 'rgba(0,0,0,0.05)' },
+            ticks: { color: '#6B7280', font: { family: 'Inter', size: 11 }, stepSize: 50 },
+            title: { display: true, text: 'Cantidad de casos', color: '#1F2937', font: { family: 'Inter', size: 12, weight: '600' } }
+          }
+        }
+      }
+    });
+  }
+
+  function showError(message, detail) {
+    document.getElementById('source-info').textContent = 'Error al cargar';
+    document.getElementById('content-root').innerHTML = `
+      <div class="error-box">
+        <strong>${escapeHtml(message)}</strong>
+        ${detail ? `<div style="margin-top:10px;font-size:13px;">${detail}</div>` : ''}
+      </div>`;
+  }
+
+  // ============================================================
+  // CARGA
+  // ============================================================
+  fetch(CSV_PATH, { cache: 'no-cache' })
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    })
+    .then(text => {
+      const rows = parseCSV(text);
+      const { con, sin } = classifyCases(rows);
+      render(con, sin);
+    })
+    .catch(err => {
+      showError(
+        'No se pudo leer el CSV.',
+        'Asegúrate de servir el dashboard desde un servidor local (no <code>file://</code>). ' +
+        'Usa <code>iniciar_servidor.bat</code> o <code>iniciar_servidor.ps1</code>. ' +
+        `Detalle: <code>${escapeHtml(err.message || String(err))}</code>`
+      );
+    });
+
+  if (window.lucide && typeof lucide.createIcons === 'function') lucide.createIcons();
+  </script>
+</body>
+</html>
